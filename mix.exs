@@ -21,8 +21,8 @@ defmodule Bandera.MixProject do
 
   def application do
     [
-      # mod: {Bandera.Application, []} restored in Task 11
-      extra_applications: [:logger, :crypto]
+      extra_applications: [:logger, :crypto],
+      mod: {Bandera.Application, []}
     ]
   end
 
