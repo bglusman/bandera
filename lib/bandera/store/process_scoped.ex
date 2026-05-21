@@ -96,11 +96,12 @@ defmodule Bandera.Store.ProcessScoped do
   end
 
   defp update(fun) do
-    NimbleOwnership.get_and_update(@ownership, self(), @key, fn
-      nil -> {:ok, fun.(%{})}
-      flags -> {:ok, fun.(flags)}
-    end)
-
-    :ok
+    case NimbleOwnership.get_and_update(@ownership, self(), @key, fn
+           nil -> {nil, fun.(%{})}
+           flags -> {nil, fun.(flags)}
+         end) do
+      {:ok, _} -> :ok
+      {:error, error} -> raise "Bandera.Store.ProcessScoped write failed: #{inspect(error)}"
+    end
   end
 end
