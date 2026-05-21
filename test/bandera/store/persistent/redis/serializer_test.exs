@@ -55,5 +55,9 @@ defmodule Bandera.Store.Persistent.Redis.SerializerTest do
       assert Enum.any?(gates, &match?(%Gate{type: :boolean, enabled: true}, &1))
       assert Enum.any?(gates, &match?(%Gate{type: :actor, for: "1", enabled: false}, &1))
     end
+
+    test "accepts a string flag name and returns an atom-named flag" do
+      assert %Flag{name: :my_flag, gates: []} = Serializer.deserialize_flag("my_flag", [])
+    end
   end
 end
