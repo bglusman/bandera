@@ -20,7 +20,9 @@ defmodule Bandera.PersistenceTelemetryTest do
       handler,
       [
         [:bandera, :persistence, :get],
+        [:bandera, :persistence, :put, :start],
         [:bandera, :persistence, :put, :stop],
+        [:bandera, :persistence, :delete, :start],
         [:bandera, :persistence, :delete, :stop],
         [:bandera, :persistence, :all_flags, :stop],
         [:bandera, :persistence, :all_flag_names, :stop]
@@ -42,6 +44,9 @@ defmodule Bandera.PersistenceTelemetryTest do
 
   test "put emits a persistence put span" do
     {:ok, _} = TwoLevel.put(:f, Gate.new(:boolean, true))
+
+    assert_receive {:telemetry, [:bandera, :persistence, :put, :start], _m,
+                    %{flag_name: :f, gate: %Gate{}}}
 
     assert_receive {:telemetry, [:bandera, :persistence, :put, :stop], meas,
                     %{flag_name: :f, gate: %Gate{}}}
@@ -73,5 +78,25 @@ defmodule Bandera.PersistenceTelemetryTest do
 
     {:ok, _} = TwoLevel.all_flag_names()
     assert_receive {:telemetry, [:bandera, :persistence, :all_flag_names, :stop], _m, _meta}
+  end
+
+  test "delete/2 emits a delete span carrying the gate" do
+    {:ok, _} = TwoLevel.put(:f, Gate.new(:actor, %{id: 1}, true))
+    {:ok, _} = TwoLevel.delete(:f, Gate.new(:actor, %{id: 1}, true))
+
+    assert_receive {:telemetry, [:bandera, :persistence, :delete, :start], _m,
+                    %{flag_name: :f, gate: %Gate{type: :actor}}}
+
+    assert_receive {:telemetry, [:bandera, :persistence, :delete, :stop], _meas,
+                    %{flag_name: :f, gate: %Gate{type: :actor}}}
+  end
+
+  test "get fires when the cache is disabled" do
+    {:ok, _} = TwoLevel.put(:f, Gate.new(:boolean, true))
+    Application.put_env(:bandera, :cache, enabled: false, ttl: 900)
+    Bandera.reload_config()
+
+    {:ok, _} = TwoLevel.lookup(:f)
+    assert_receive {:telemetry, [:bandera, :persistence, :get], _meas, %{flag_name: :f}}
   end
 end
