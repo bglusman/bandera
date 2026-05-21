@@ -32,6 +32,10 @@ defmodule Bandera.Test do
   process exits (NimbleOwnership monitors owners); `reset/0` clears overrides
   explicitly within a test if needed.
 
+  The `use Bandera.Test` macro imports `enable_flag/1,2` and `disable_flag/1,2`
+  for unqualified use. The remaining helpers — `put_flag/2,3`, `clear/1`, and
+  `reset/0` — are called fully qualified, e.g. `Bandera.Test.reset()`.
+
   Consumers must add `{:nimble_ownership, "~> 1.0", only: :test}` to their deps.
   """
 
@@ -89,6 +93,9 @@ defmodule Bandera.Test do
 
   defp drop({:ok, _}), do: :ok
   defp drop(:ok), do: :ok
+
+  defp drop({:error, reason}),
+    do: raise("Bandera.Test: unexpected store error: #{inspect(reason)}")
 
   @doc false
   defmacro __using__(_opts) do
