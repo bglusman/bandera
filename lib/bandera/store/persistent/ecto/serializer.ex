@@ -7,6 +7,11 @@ defmodule Bandera.Store.Persistent.Ecto.Serializer do
   with the ratio and kind encoded in `target` (`"time/<r>"` / `"actors/<r>"`). The
   boolean gate's nil target is stored as the `"_bandera_none"` sentinel because SQL
   unique indexes treat NULL values as distinct.
+
+  Flag names read back from storage are converted to atoms with `String.to_atom/1`
+  (so that listing flags created in a previous VM session works). Feature-flag
+  names must therefore be a bounded, developer-defined set — never untrusted user
+  input.
   """
 
   alias Bandera.Flag
@@ -38,7 +43,7 @@ defmodule Bandera.Store.Persistent.Ecto.Serializer do
   def serialize_target(value) when is_binary(value), do: value
   def serialize_target(value), do: to_string(value)
 
-  @spec deserialize_flag(atom, [map]) :: Flag.t()
+  @spec deserialize_flag(atom | String.t(), [map]) :: Flag.t()
   def deserialize_flag(flag_name, rows) when is_list(rows) do
     gates =
       rows
