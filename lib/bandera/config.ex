@@ -34,6 +34,7 @@ defmodule Bandera.Config do
   def snapshot do
     case :persistent_term.get(@pt_key, nil) do
       nil ->
+        # NOTE: concurrent cold-start races are benign — both writes produce identical snapshots.
         snap = build_snapshot()
         :persistent_term.put(@pt_key, snap)
         snap
@@ -54,6 +55,9 @@ defmodule Bandera.Config do
 
   @spec persistence_adapter() :: module
   def persistence_adapter, do: snapshot().persistence_adapter
+
+  @spec persistence() :: keyword
+  def persistence, do: snapshot().persistence
 
   defp build_snapshot do
     cache = Keyword.merge(@default_cache, Application.get_env(:bandera, :cache, []))

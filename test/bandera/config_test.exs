@@ -32,9 +32,12 @@ defmodule Bandera.ConfigTest do
     assert Config.cache_ttl() == 5
   end
 
-  test "snapshot/0 lazily seeds persistent_term when missing" do
+  test "snapshot/0 lazily seeds persistent_term from defaults when missing" do
+    Application.delete_env(:bandera, :cache)
     :persistent_term.erase({Config, :snapshot})
+
     assert is_map(Config.snapshot())
-    assert Config.cache_enabled?() in [true, false]
+    assert Config.cache_enabled?() == true
+    assert Config.cache_ttl() == 900
   end
 end
