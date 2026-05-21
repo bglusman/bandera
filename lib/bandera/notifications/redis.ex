@@ -5,6 +5,11 @@ if Code.ensure_loaded?(Redix.PubSub) do
     on a flag change published by ANOTHER node, busts the local cache entry for
     that flag. Self-published changes are ignored. Connection options are read at
     runtime from `config :bandera, cache_bust_notifications: [redis: <Redix opts>]`.
+
+    Note: incoming change payloads come from a shared channel. The flag name is
+    resolved with `String.to_existing_atom/1`, so notifications for flags this node
+    has never referenced are ignored (and the atom table can't be exhausted by
+    foreign publishers).
     """
 
     use GenServer
@@ -65,9 +70,19 @@ if Code.ensure_loaded?(Redix.PubSub) do
     defp handle_payload(payload, own_id) do
       case String.split(payload, ":", parts: 2) do
         [^own_id, _flag] -> :ok
-        [_other_id, flag] -> Cache.bust(String.to_atom(flag))
+        [_other_id, flag] -> bust(flag)
         _ -> :ok
       end
+    end
+
+    # The flag name arrives over a shared channel that other (or misbehaving)
+    # publishers could write to. Use String.to_existing_atom/1 to avoid atom-table
+    # exhaustion: an unknown flag name means this node has never referenced that
+    # flag, so there is nothing cached to bust — drop it silently.
+    defp bust(flag) do
+      Cache.bust(String.to_existing_atom(flag))
+    rescue
+      ArgumentError -> :ok
     end
 
     defp normalize({:ok, _}), do: :ok

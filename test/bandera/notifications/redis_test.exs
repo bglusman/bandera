@@ -59,4 +59,10 @@ defmodule Bandera.Notifications.RedisTest do
     Process.sleep(100)
     assert {:ok, _} = Cache.get(:f)
   end
+
+  test "unique_id/0 returns a stable string id" do
+    id = RedisNotifier.unique_id()
+    assert is_binary(id)
+    assert RedisNotifier.unique_id() == id
+  end
 end
