@@ -50,4 +50,39 @@ defmodule Bandera.Store.TwoLevelTest do
     # Now reads bypass the cache and hit persistent (true):
     assert {:ok, %{gates: [%Gate{enabled: true}]}} = TwoLevel.lookup(:f)
   end
+
+  test "delete/2 writes through to persistent and updates the cache" do
+    {:ok, _} = TwoLevel.put(:f, Gate.new(:boolean, true))
+    {:ok, _} = TwoLevel.put(:f, Gate.new(:actor, %{id: 1}, true))
+
+    {:ok, flag} = TwoLevel.delete(:f, Gate.new(:actor, %{id: 1}, true))
+    assert [%Gate{type: :boolean}] = flag.gates
+    assert {:ok, ^flag} = Memory.get(:f)
+    assert {:ok, ^flag} = Cache.get(:f)
+  end
+
+  test "delete/1 writes through to persistent and updates the cache" do
+    {:ok, _} = TwoLevel.put(:f, Gate.new(:boolean, true))
+
+    {:ok, flag} = TwoLevel.delete(:f)
+    assert flag.gates == []
+    assert {:ok, ^flag} = Memory.get(:f)
+    assert {:ok, ^flag} = Cache.get(:f)
+  end
+
+  test "writing while the cache is disabled invalidates a stale cache entry" do
+    {:ok, _} = TwoLevel.put(:f, Gate.new(:boolean, true))
+    assert {:ok, %{gates: [%Gate{enabled: true}]}} = Cache.get(:f)
+
+    # Disable cache, then write a new value: the stale entry must be busted.
+    Application.put_env(:bandera, :cache, enabled: false, ttl: 900)
+    Config.reload()
+    {:ok, _} = TwoLevel.put(:f, Gate.new(:boolean, false))
+    assert {:miss, _} = Cache.get(:f)
+
+    # Re-enable: lookup must reflect the persistent (false) value, not the stale true.
+    Application.put_env(:bandera, :cache, enabled: true, ttl: 900)
+    Config.reload()
+    assert {:ok, %{gates: [%Gate{enabled: false}]}} = TwoLevel.lookup(:f)
+  end
 end

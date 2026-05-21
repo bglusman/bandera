@@ -31,7 +31,7 @@ defmodule Bandera.Store.TwoLevel do
   @impl Bandera.Store
   def put(flag_name, gate) do
     with {:ok, flag} <- persistent().put(flag_name, gate) do
-      if Config.cache_enabled?(), do: Cache.put(flag)
+      refresh_cache(flag_name, flag)
       {:ok, flag}
     end
   end
@@ -39,7 +39,7 @@ defmodule Bandera.Store.TwoLevel do
   @impl Bandera.Store
   def delete(flag_name, gate) do
     with {:ok, flag} <- persistent().delete(flag_name, gate) do
-      if Config.cache_enabled?(), do: Cache.put(flag)
+      refresh_cache(flag_name, flag)
       {:ok, flag}
     end
   end
@@ -47,7 +47,7 @@ defmodule Bandera.Store.TwoLevel do
   @impl Bandera.Store
   def delete(flag_name) do
     with {:ok, flag} <- persistent().delete(flag_name) do
-      if Config.cache_enabled?(), do: Cache.put(flag)
+      refresh_cache(flag_name, flag)
       {:ok, flag}
     end
   end
@@ -59,4 +59,10 @@ defmodule Bandera.Store.TwoLevel do
   def all_flag_names, do: persistent().all_flag_names()
 
   defp persistent, do: Config.persistence_adapter()
+
+  # Keep the cache consistent on writes: refresh when enabled, otherwise drop any
+  # stale entry so it can't reappear if the cache is later re-enabled.
+  defp refresh_cache(flag_name, flag) do
+    if Config.cache_enabled?(), do: Cache.put(flag), else: Cache.bust(flag_name)
+  end
 end
