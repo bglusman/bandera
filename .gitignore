@@ -9,3 +9,7 @@ bandera-*.tar
 
 # Local-only planning docs (kept out of git intentionally)
 /docs/superpowers/
+
+# SQLite test database
+/bandera_test.db
+/bandera_test.db-*

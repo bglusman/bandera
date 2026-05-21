@@ -59,6 +59,9 @@ defmodule Bandera.Config do
   @spec persistence() :: keyword
   def persistence, do: snapshot().persistence
 
+  @spec ecto_table_name() :: String.t()
+  def ecto_table_name, do: Keyword.get(persistence(), :ecto_table_name, "bandera_flags")
+
   defp build_snapshot do
     cache = Keyword.merge(@default_cache, Application.get_env(:bandera, :cache, []))
 
