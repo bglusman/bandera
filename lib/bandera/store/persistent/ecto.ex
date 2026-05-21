@@ -17,6 +17,16 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
           ]
 
     Run `Bandera.Ecto.Migrations.up/0` from a migration to create the table.
+
+    ## Concurrency note
+
+    Writing a percentage gate uses a transaction (delete the existing "percentage"
+    row, insert the new one) rather than a database advisory lock. Single-writer
+    configuration flows — the common case — are fully consistent. Under concurrent
+    writes to the *same flag's* percentage gate, a colliding write returns
+    `{:error, _}` (safe to retry); a rare interleaving of two different-ratio writes
+    could momentarily leave two percentage rows. A future version may add advisory
+    locking (as fun_with_flags does) if needed.
     """
 
     @behaviour Bandera.Store.Persistent
@@ -42,17 +52,18 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
       name = to_string(flag_name)
       row = Serializer.to_row(flag_name, gate)
 
-      repo().transaction(fn ->
-        repo().delete_all(
-          from(r in {table(), Record},
-            where: r.flag_name == ^name and r.gate_type == "percentage"
-          )
-        )
+      case repo().transaction(fn ->
+             repo().delete_all(
+               from(r in {table(), Record},
+                 where: r.flag_name == ^name and r.gate_type == "percentage"
+               )
+             )
 
-        repo().insert_all({table(), Record}, [row])
-      end)
-
-      get(flag_name)
+             repo().insert_all({table(), Record}, [row])
+           end) do
+        {:ok, _} -> get(flag_name)
+        {:error, reason} -> {:error, reason}
+      end
     end
 
     @impl Bandera.Store.Persistent

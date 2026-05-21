@@ -59,6 +59,13 @@ defmodule Bandera.Store.Persistent.EctoTest do
     assert empty.gates == []
   end
 
+  test "delete/2 with a percentage gate clears the percentage slot" do
+    {:ok, _} = EctoStore.put(:f, Gate.new(:percentage_of_actors, 0.5))
+    # deleting with EITHER percentage type clears the single percentage slot
+    {:ok, flag} = EctoStore.delete(:f, Gate.new(:percentage_of_time, 0.5))
+    assert flag.gates == []
+  end
+
   test "all_flags and all_flag_names" do
     {:ok, _} = EctoStore.put(:a, Gate.new(:boolean, true))
     {:ok, _} = EctoStore.put(:b, Gate.new(:boolean, false))
