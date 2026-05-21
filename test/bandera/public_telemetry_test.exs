@@ -21,7 +21,9 @@ defmodule Bandera.PublicTelemetryTest do
         [:bandera, :enabled?],
         [:bandera, :enable, :start],
         [:bandera, :enable, :stop],
+        [:bandera, :disable, :start],
         [:bandera, :disable, :stop],
+        [:bandera, :clear, :start],
         [:bandera, :clear, :stop]
       ],
       fn event, measurements, metadata, _ ->
@@ -57,12 +59,15 @@ defmodule Bandera.PublicTelemetryTest do
     assert meta.result == {:ok, true}
   end
 
-  test "disable and clear emit span stop events" do
+  test "disable and clear emit span start + stop events" do
     {:ok, _} = Bandera.enable(:f)
+
     assert {:ok, false} = Bandera.disable(:f)
+    assert_receive {:telemetry, [:bandera, :disable, :start], _m, %{flag_name: :f, options: []}}
     assert_receive {:telemetry, [:bandera, :disable, :stop], _meas, %{result: {:ok, false}}}
 
     assert :ok = Bandera.clear(:f)
+    assert_receive {:telemetry, [:bandera, :clear, :start], _m, %{flag_name: :f, options: []}}
     assert_receive {:telemetry, [:bandera, :clear, :stop], _meas, %{result: :ok}}
   end
 
@@ -71,5 +76,13 @@ defmodule Bandera.PublicTelemetryTest do
 
     assert_receive {:telemetry, [:bandera, :enabled?], _m,
                     %{flag_name: :none, options: [], result: false}}
+  end
+
+  test "enabled?(flag, for: actor) emits an event carrying options: [for: actor]" do
+    {:ok, _} = Bandera.enable(:f, for_actor: %{id: 1})
+    assert Bandera.enabled?(:f, for: %{id: 1}) == true
+
+    assert_receive {:telemetry, [:bandera, :enabled?], _m,
+                    %{flag_name: :f, options: [for: %{id: 1}], result: true}}
   end
 end

@@ -51,7 +51,9 @@ defmodule Bandera do
   # ---- enable ----
 
   @spec enable(atom, keyword) :: {:ok, boolean} | {:error, term}
-  def enable(flag_name, options \\ []) do
+  def enable(flag_name, options \\ [])
+
+  def enable(flag_name, options) when is_atom(flag_name) do
     Bandera.Telemetry.span([:enable], %{flag_name: flag_name, options: options}, fn ->
       result = do_enable(flag_name, options)
       {result, %{result: result}}
@@ -80,7 +82,9 @@ defmodule Bandera do
   # ---- disable ----
 
   @spec disable(atom, keyword) :: {:ok, boolean} | {:error, term}
-  def disable(flag_name, options \\ []) do
+  def disable(flag_name, options \\ [])
+
+  def disable(flag_name, options) when is_atom(flag_name) do
     Bandera.Telemetry.span([:disable], %{flag_name: flag_name, options: options}, fn ->
       result = do_disable(flag_name, options)
       {result, %{result: result}}
@@ -111,7 +115,9 @@ defmodule Bandera do
   # ---- clear ----
 
   @spec clear(atom, keyword) :: :ok | {:error, term}
-  def clear(flag_name, options \\ []) do
+  def clear(flag_name, options \\ [])
+
+  def clear(flag_name, options) when is_atom(flag_name) do
     Bandera.Telemetry.span([:clear], %{flag_name: flag_name, options: options}, fn ->
       result = do_clear(flag_name, options)
       {result, %{result: result}}
