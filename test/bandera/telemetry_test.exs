@@ -27,12 +27,12 @@ defmodule Bandera.TelemetryTest do
     assert is_integer(measurements.system_time)
   end
 
-  test "span/3 emits :start and :stop (with duration) and returns the function's result" do
+  test "span/3 emits :start and :stop (with duration), merges start metadata into stop, and returns the result" do
     attach([[:bandera, :op, :start], [:bandera, :op, :stop]])
 
     result =
       Telemetry.span([:op], %{flag_name: :f}, fn ->
-        {:my_result, %{flag_name: :f, result: :my_result}}
+        {:my_result, %{result: :my_result}}
       end)
 
     assert result == :my_result

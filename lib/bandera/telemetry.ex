@@ -16,6 +16,9 @@ defmodule Bandera.Telemetry do
 
   Emitted via `:telemetry.span/3`.
 
+  `:stop`/`:exception` events carry the start metadata (e.g. `flag_name`,
+  `options`) merged with any extra stop fields (e.g. `result`).
+
   * `[:bandera, :enable]`, `[:bandera, :disable]`, `[:bandera, :clear]` — public
     API writes. Start metadata `%{flag_name, options}`; stop metadata `%{result}`.
   * `[:bandera, :persistence, :put]`, `[:bandera, :persistence, :delete]` — store
@@ -25,11 +28,18 @@ defmodule Bandera.Telemetry do
 
   @prefix :bandera
 
-  @doc "Run `fun` inside a `:telemetry` span under `[:bandera | prefix]`. `fun` returns `{result, stop_metadata}`."
+  @doc """
+  Run `fun` inside a `:telemetry` span under `[:bandera | prefix]`. `fun` returns
+  `{result, extra_stop_metadata}`. The `:stop` (and `:exception`) events carry the
+  start `metadata` merged with `extra_stop_metadata`.
+  """
   @spec span([atom], map(), (-> {result, map()})) :: result when result: var
   def span(prefix, metadata, fun)
       when is_list(prefix) and is_map(metadata) and is_function(fun, 0) do
-    :telemetry.span([@prefix | prefix], metadata, fun)
+    :telemetry.span([@prefix | prefix], metadata, fn ->
+      {result, stop_metadata} = fun.()
+      {result, Map.merge(metadata, stop_metadata)}
+    end)
   end
 
   @doc "Emit a point-in-time `:telemetry` event under `[:bandera | prefix]` with a `system_time` measurement."
