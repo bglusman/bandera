@@ -6,3 +6,6 @@ erl_crash.dump
 *.ez
 bandera-*.tar
 /tmp/
+
+# Local-only planning docs (kept out of git intentionally)
+/docs/superpowers/
