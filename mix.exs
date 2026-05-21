@@ -9,7 +9,9 @@ defmodule Bandera.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      test_coverage: [threshold: 85],
+      description: "Feature flag library with runtime config for storage backends and caching.",
+      links: [],
+      test_coverage: [summary: [threshold: 85]],
       # Incremental Dialyzer via `mix assay`:
       assay: [
         dialyzer: [
