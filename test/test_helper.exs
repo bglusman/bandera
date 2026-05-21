@@ -25,10 +25,10 @@ Process.flag(:trap_exit, true)
 reachable? = fn conn ->
   try do
     match?({:ok, "PONG"}, Redix.command(conn, ["PING"]))
-  catch
-    :exit, _ -> false
   rescue
     _ -> false
+  catch
+    :exit, _ -> false
   end
 end
 
