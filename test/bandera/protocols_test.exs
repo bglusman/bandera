@@ -21,4 +21,12 @@ defmodule Bandera.ProtocolsTest do
   test "Group.in?/2 defaults to false for values without group info" do
     refute Bandera.Group.in?("user-1", "admin")
   end
+
+  test "Actor.id/1 raises a clear error for a map without :id" do
+    assert_raise ArgumentError, ~r/no :id key/, fn -> Bandera.Actor.id(%{name: "alice"}) end
+  end
+
+  test "Group.in?/2 defaults to false for integers" do
+    refute Bandera.Group.in?(42, "admin")
+  end
 end

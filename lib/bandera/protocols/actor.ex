@@ -17,4 +17,10 @@ end
 
 defimpl Bandera.Actor, for: Map do
   def id(%{id: id}), do: to_string(id)
+
+  def id(map) do
+    raise ArgumentError,
+          "Bandera.Actor.id/1: map has no :id key — got #{inspect(map)}. " <>
+            "Implement the Bandera.Actor protocol for your own struct/type instead."
+  end
 end
