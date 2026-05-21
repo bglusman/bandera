@@ -19,8 +19,9 @@ Ecto.Migrator.run(Bandera.TestRepo, [{20_260_101_000_000, Bandera.TestRepo.Migra
 # --- Redis: run the :redis tests only if a local Redis is reachable. ---
 # Redix links its connection to this process and, with sync_connect, a refused
 # connection crashes that linked process; trap exits so an unreachable Redis
-# excludes the :redis tests instead of taking down the test boot.
-Process.flag(:trap_exit, true)
+# excludes the :redis tests instead of taking down the test boot. Scope the flag
+# to just the probe and restore it afterwards so the rest of the boot is unaffected.
+previous_trap_exit = Process.flag(:trap_exit, true)
 
 reachable? = fn conn ->
   try do
@@ -45,6 +46,8 @@ receive do
 after
   0 -> :ok
 end
+
+Process.flag(:trap_exit, previous_trap_exit)
 
 unless redis_available? do
   ExUnit.configure(exclude: [:redis])
