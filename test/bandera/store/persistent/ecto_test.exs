@@ -76,6 +76,17 @@ defmodule Bandera.Store.Persistent.EctoTest do
     assert length(flags) == 2
   end
 
+  test "variant gate persists and resolves through the Ecto adapter" do
+    alias Bandera.Store.Persistent.Ecto, as: EctoStore
+
+    {:ok, _flag} = EctoStore.put(:hero, Bandera.Gate.new(:variant, %{"a" => 1, "b" => 1}))
+    {:ok, flag} = EctoStore.get(:hero)
+
+    assert [%Bandera.Gate{type: :variant, value: %{"a" => 1, "b" => 1}}] = flag.gates
+    v = Bandera.Flag.variant(flag, for: %{id: 7})
+    assert v in ["a", "b"]
+  end
+
   test "works end-to-end through the public Bandera API via TwoLevel" do
     start_supervised!(Bandera.Store.Cache)
     Application.put_env(:bandera, :store, Bandera.Store.TwoLevel)

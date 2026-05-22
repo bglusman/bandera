@@ -74,4 +74,11 @@ defmodule Bandera.Store.ProcessScopedTest do
     {:ok, flag} = ProcessScoped.put(:pct, Gate.new(:percentage_of_actors, 0.7))
     assert [%Gate{type: :percentage_of_actors, for: 0.7}] = flag.gates
   end
+
+  test "variant gate round-trips through ProcessScoped (adapter parity)" do
+    gate = Gate.new(:variant, %{"blue" => 1, "green" => 1})
+    {:ok, flag} = ProcessScoped.put(:exp, gate)
+    assert %Flag{name: :exp, gates: [^gate]} = flag
+    assert {:ok, ^flag} = ProcessScoped.lookup(:exp)
+  end
 end
