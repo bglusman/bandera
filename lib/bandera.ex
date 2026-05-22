@@ -314,6 +314,31 @@ defmodule Bandera do
     default
   end
 
+  # ---- segments ----
+
+  @segment_prefix "bandera_segment:"
+
+  @doc """
+  Stores a reusable named constraint set (a segment) under the reserved key
+  `:"bandera_segment:<name>"`.
+
+  Segments are referenced from flags via `enable(flag, for_segment: name)` and are
+  expanded at evaluation time so that `Flag` stays pure. `name` must be a
+  developer-defined atom — never untrusted user input.
+
+  ## Examples
+
+      iex> {:ok, _} = Bandera.put_segment(:premium, [{"plan", :eq, "premium"}])
+      iex> {:ok, _flag} = Bandera.get_flag(:"bandera_segment:premium")
+  """
+  @spec put_segment(atom, [tuple | Bandera.Constraint.t()]) :: {:ok, Flag.t()} | {:error, term}
+  def put_segment(name, constraints) when is_atom(name) and is_list(constraints) do
+    gate = Gate.new(:rule, Enum.map(constraints, &to_constraint/1), true)
+    Store.active().put(segment_key(name), gate)
+  end
+
+  defp segment_key(name), do: String.to_atom(@segment_prefix <> to_string(name))
+
   # ---- introspection ----
 
   @doc """
