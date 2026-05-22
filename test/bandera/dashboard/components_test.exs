@@ -43,4 +43,11 @@ defmodule Bandera.Dashboard.ComponentsTest do
     assert out =~ "1 actor"
     assert out =~ "·"
   end
+
+  test "styles/1 renders a style block with prefixed selectors" do
+    html = render_component(&Components.styles/1, [])
+    assert html =~ "<style"
+    assert html =~ ".bandera-wrap"
+    assert html =~ ".bandera-toggle"
+  end
 end
