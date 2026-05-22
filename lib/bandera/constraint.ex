@@ -33,8 +33,15 @@ defmodule Bandera.Constraint do
   defp apply_op(:lt, actual, [v]), do: compare(actual, v) == :lt
   defp apply_op(:lte, actual, [v]), do: compare(actual, v) in [:lt, :eq]
 
-  defp apply_op(:matches, actual, [pattern]) when is_binary(actual) and is_binary(pattern),
-    do: Regex.match?(Regex.compile!(pattern), actual)
+  defp apply_op(:matches, actual, [pattern]) when is_binary(actual) and is_binary(pattern) do
+    # Compile leniently: a malformed pattern stored in a rule must not crash the
+    # caller (constraint evaluation runs synchronously inside enabled?/2), so an
+    # uncompilable pattern is treated as a non-match.
+    case Regex.compile(pattern) do
+      {:ok, regex} -> Regex.match?(regex, actual)
+      {:error, _reason} -> false
+    end
+  end
 
   defp apply_op(_op, _actual, _values), do: false
 

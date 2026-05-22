@@ -27,6 +27,10 @@ defmodule Bandera.ConstraintTest do
     refute Constraint.match?(c("plan", :eq, "premium"), %{})
   end
 
+  test "an uncompilable :matches pattern is a non-match, not a crash" do
+    refute Constraint.match?(c("email", :matches, "([unclosed"), %{"email" => "a@acme.com"})
+  end
+
   test "to_map / from_map round-trip" do
     constraint = c("country", :in, ["US", "CA"])
     assert constraint |> Constraint.to_map() |> Constraint.from_map() == constraint

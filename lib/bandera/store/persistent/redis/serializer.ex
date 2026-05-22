@@ -85,6 +85,10 @@ defmodule Bandera.Store.Persistent.Redis.Serializer do
   defp deserialize_pair(["variant", json]),
     do: %Gate{type: :variant, for: nil, enabled: true, value: Jason.decode!(json)}
 
+  # Rule gates are stored grant-when-matched: only the constraint list is encoded,
+  # so they always deserialize as enabled. There is no public API to write a
+  # disabled rule gate; if disable-by-rule is ever added, encode `enabled` here and
+  # in serialize/1 (e.g. a %{"enabled" => bool, "constraints" => [...]} object).
   defp deserialize_pair(["rule", json]),
     do: %Gate{
       type: :rule,

@@ -53,6 +53,8 @@ defmodule Bandera.Flag do
 
     cond do
       item != nil -> evaluate(gates, name, item, context)
+      # An explicit empty context is treated the same as no context (rule gates
+      # are skipped) — enabled?(:f) and enabled?(:f, context: %{}) are equivalent.
       context != %{} -> check_rule_gates(gates, context) || base(gates)
       true -> base(gates)
     end
@@ -69,7 +71,12 @@ defmodule Bandera.Flag do
             result
 
           :ignore ->
-            check_rule_gates(gates, context) || base(gates) ||
+            # actor path precedence: rule -> boolean -> percentage. Percentage is
+            # resolved only via check_percentage_gate/3 (which prefers
+            # percentage_of_actors and falls back to percentage_of_time), so a
+            # percentage_of_time gate is evaluated at most once — folding base/1 in
+            # here would draw its random outcome twice and inflate its probability.
+            check_rule_gates(gates, context) || check_boolean_gate(gates) ||
               check_percentage_gate(gates, item, name)
         end
     end
