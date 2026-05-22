@@ -37,7 +37,8 @@ defmodule Bandera.MixProject do
           # `extra_applications`) but it is not part of the resolved dep tree,
           # so the `:project_plus_deps` selector omits it. Add it explicitly so
           # the PLT includes its specs and `:crypto.hash/2` resolves cleanly.
-          apps: [:project_plus_deps, :crypto],
+          # `:mix` is added for the `mix bandera.flags` task (Mix.Task/Mix.shell).
+          apps: [:project_plus_deps, :crypto, :mix],
           warning_apps: :project
         ]
       ]
