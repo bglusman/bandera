@@ -25,6 +25,9 @@ defmodule Bandera do
   protocols). The flag is read through the active store (cache included). A missing
   flag, or a store lookup error, resolves to `false` (the error is logged).
 
+  Pass `default: true` to fail open (return true) when the store is unreachable; the
+  default is false.
+
   ## Examples
 
       iex> Bandera.enabled?(:unknown_flag)
@@ -43,23 +46,28 @@ defmodule Bandera do
   @spec enabled?(atom, keyword) :: boolean
   def enabled?(flag_name, options \\ [])
 
-  def enabled?(flag_name, []) when is_atom(flag_name) do
+  def enabled?(flag_name, options) when is_atom(flag_name) do
+    {default, rest} = Keyword.pop(options, :default, false)
+    do_enabled?(flag_name, rest, default)
+  end
+
+  defp do_enabled?(flag_name, [], default) do
     result =
       case Store.active().lookup(flag_name) do
         {:ok, flag} -> Flag.enabled?(flag)
-        error -> lookup_failed(flag_name, error)
+        error -> lookup_failed(flag_name, error, default)
       end
 
     track_enabled?(flag_name, [], result)
   end
 
-  def enabled?(flag_name, for: nil), do: enabled?(flag_name)
+  defp do_enabled?(flag_name, [for: nil], default), do: do_enabled?(flag_name, [], default)
 
-  def enabled?(flag_name, for: item) when is_atom(flag_name) do
+  defp do_enabled?(flag_name, [for: item], default) do
     result =
       case Store.active().lookup(flag_name) do
         {:ok, flag} -> Flag.enabled?(flag, for: item)
-        error -> lookup_failed(flag_name, error)
+        error -> lookup_failed(flag_name, error, default)
       end
 
     track_enabled?(flag_name, [for: item], result)
@@ -299,8 +307,8 @@ defmodule Bandera do
     end
   end
 
-  defp lookup_failed(flag_name, error) do
+  defp lookup_failed(flag_name, error, default) do
     Logger.warning("[Bandera] store lookup for #{inspect(flag_name)} failed: #{inspect(error)}")
-    false
+    default
   end
 end

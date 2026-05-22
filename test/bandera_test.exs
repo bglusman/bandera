@@ -221,5 +221,16 @@ defmodule BanderaTest do
       assert {:error, :boom} = Bandera.all_flags()
       assert {:error, :boom} = Bandera.all_flag_names()
     end
+
+    test "enabled? returns the :default when the store lookup fails" do
+      import ExUnit.CaptureLog
+
+      capture_log(fn ->
+        assert Bandera.enabled?(:f, default: true) == true
+        assert Bandera.enabled?(:f, for: %{id: 1}, default: true) == true
+        assert Bandera.enabled?(:f, default: false) == false
+        refute Bandera.enabled?(:f)
+      end)
+    end
   end
 end
