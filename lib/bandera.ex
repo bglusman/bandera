@@ -173,6 +173,9 @@ defmodule Bandera do
   defp do_enable(flag_name, for_segment: name) when is_atom(flag_name),
     do: put_constant(flag_name, Gate.new(:segment, name, true), true)
 
+  defp do_enable(flag_name, schedule: {from, until}) when is_atom(flag_name),
+    do: put_constant(flag_name, Gate.new(:schedule, {from, until}), true)
+
   defp do_enable(flag_name, requires: parent) when is_atom(flag_name) and is_atom(parent),
     do: put_constant(flag_name, Gate.new(:prerequisite, parent, true), true)
 
