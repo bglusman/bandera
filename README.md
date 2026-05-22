@@ -7,31 +7,24 @@
 Feature flags for Elixir, configured **entirely at runtime**, with an
 **async-safe test layer**.
 
-Bandera supports the full gate model — boolean, actor, group, and percentage
-rollouts — backed by in-memory, Ecto, or Redis storage, with an ETS cache and
+Bandera supports the full gate model (boolean, actor, group, and percentage
+rollouts), backed by in-memory, Ecto, or Redis storage, with an ETS cache and
 cross-node cache-busting notifications.
 
 ## Why Bandera?
 
-Bandera exists to fix two specific, recurring pain points with feature flags in
-Elixir:
+Two things it's built to get right:
 
-**1. Runtime config — no recompilation.** Most flag libraries read some settings
-through `Application.compile_env/3`, which bakes them into compiled artifacts.
-Changing a value (or even building in a different environment) then forces a
-recompile, which is slow and a frequent source of CI/release surprises. It also
-collides with releases: `mix release` records every `compile_env` value and runs
-a `:validate_compile_env` check at boot, so if `config/runtime.exs` sets a key
-that was read at compile time, the release **refuses to start** with a
-"different value set ... during runtime compared to compile time" error. Bandera
-uses **zero** `compile_env` — every setting (cache on/off, TTL, persistence
-adapter, Ecto table name, notifications) is read from `Application.get_env/3` at
-runtime. There is nothing for `:validate_compile_env` to reject: you can put
-config in `config/runtime.exs`, change it without a recompile, and call
-`Bandera.reload_config/0` to apply it live. Hot-path reads stay fast because the
-resolved config is cached in `:persistent_term`.
+**1. Runtime config, no recompilation.** Bandera reads every setting at runtime
+through `Application.get_env/3` and never touches `Application.compile_env/3`.
+Compile-time config gets baked into artifacts: change a value and you recompile,
+and `mix release`'s `:validate_compile_env` check refuses to boot when
+`config/runtime.exs` overrides a compile-time key. Here, cache, TTL, persistence
+adapter, Ecto table name, and notifications all live in `config/runtime.exs`, and
+`Bandera.reload_config/0` applies changes live. Resolved config is cached in
+`:persistent_term`, so hot-path reads stay fast.
 
-**2. Async-safe testing — no global bleed or deadlocks.** Flag state is normally
+**2. Async-safe testing, no global bleed or deadlocks.** Flag state is normally
 global (shared ETS or a database row), so toggling a flag in one test leaks into
 others. That forces flag tests to run `async: false`, and writing flags inside
 the Ecto SQL sandbox can deadlock. Bandera ships a **process-scoped test layer**:
@@ -59,7 +52,7 @@ mix deps.get
 
 Out of the box Bandera uses an in-memory (ETS) store, so it works with no
 further setup for development and single-node use. The persistence and
-notification backends are optional dependencies — add only the ones you use:
+notification backends are optional dependencies; add only the ones you use:
 
 ```elixir
 {:ecto_sql, "~> 3.10"},        # Ecto persistence (plus a DB driver, e.g. :postgrex)
@@ -117,7 +110,7 @@ Bandera.enable(:checkout)          #=> {:ok, true}
 Bandera.enabled?(:checkout)        #=> true
 Bandera.disable(:checkout)         #=> {:ok, false}
 
-# Per actor — pass `for:` to check
+# Per actor (pass `for:` to check)
 Bandera.enable(:beta, for_actor: "user-1")
 Bandera.enabled?(:beta, for: "user-1")   #=> true
 Bandera.enabled?(:beta, for: "user-2")   #=> false
@@ -137,15 +130,14 @@ Bandera.all_flag_names()           #=> {:ok, [:beta]}
 Bandera.get_flag(:beta)            #=> {:ok, %Bandera.Flag{...}}
 ```
 
-`enabled?/2` always returns a boolean — a missing flag (or a store error,
+`enabled?/2` always returns a boolean. A missing flag (or a store error,
 which is logged) resolves to `false`.
 
 ### Actors and groups
 
-An "actor" is anything you can identify with a stable string id, and a "group"
-is membership any item can belong to. Bandera ships implementations for
-binaries, integers, and maps with an `:id` / `:groups` key. For your own
-structs, implement the protocols:
+An actor is anything with a stable string id; a group is a named bucket an actor
+can belong to. Bandera ships implementations for binaries, integers, and maps
+(`:id` / `:groups` keys). For your own structs, implement the protocols:
 
 ```elixir
 defimpl Bandera.Actor, for: MyApp.User do

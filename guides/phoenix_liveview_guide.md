@@ -2,12 +2,12 @@
 
 This is a short, practical guide to gating UI and behavior in a Phoenix
 LiveView app with Bandera. It assumes Bandera is already installed and
-configured — see the [README](README.md) for that.
+configured; see the [README](README.md) for that.
 
-LiveViews are just processes, so there is nothing special about calling Bandera
-from one: `Bandera.enabled?/2` works in `mount/3`, `handle_event/3`,
-`handle_info/2`, and inside `~H` templates. The interesting parts are (1) wiring
-the current user in as the actor, and (2) testing — covered at the end.
+LiveViews are just processes, so calling Bandera from one is nothing special:
+`Bandera.enabled?/2` works in `mount/3`, `handle_event/3`, `handle_info/2`, and
+inside `~H` templates. What's worth spelling out is wiring the current user in as
+the actor, and testing. Both are covered below.
 
 ## 1. Identify the current user
 
@@ -80,7 +80,7 @@ end
 
 ## 3. Gate events and actions
 
-Don't rely on the UI alone — re-check the flag where the action actually happens,
+Don't rely on the UI alone. Re-check the flag where the action actually happens,
 so a hidden control can't be triggered by a crafted event:
 
 ```elixir
@@ -97,7 +97,7 @@ end
 ## 4. (Optional) React to flag changes live
 
 `mount/3` reads the flag once. If you want a running LiveView to pick up a flag
-change without a reload, re-read the flag on some trigger — for example a
+change without a reload, re-read the flag on some trigger, for example a
 periodic tick, or a `Phoenix.PubSub` broadcast you send when toggling flags:
 
 ```elixir
@@ -118,7 +118,7 @@ toggling matters.
 
 ## 5. Outside LiveView
 
-The same calls work everywhere — controllers, function components, and plugs:
+The same calls work everywhere: controllers, function components, and plugs:
 
 ```elixir
 # controller
@@ -134,11 +134,10 @@ end
 
 ## 6. Testing LiveViews
 
-This is where Bandera shines. Its test layer scopes overrides to the **test
-process and its descendants** — and a LiveView started by `Phoenix.LiveViewTest`
-is a descendant (Phoenix propagates `$callers`), so flags you set in the test are
-visible inside the LiveView. Tests stay `async: true`, never touch the database,
-and clean up automatically.
+The test layer scopes overrides to the **test process and its descendants**. A
+LiveView started by `Phoenix.LiveViewTest` is a descendant (Phoenix propagates
+`$callers`), so flags you set in the test are visible inside the LiveView. Tests
+stay `async: true`, never touch the database, and clean up automatically.
 
 One-time setup (see the README for details):
 
@@ -185,14 +184,6 @@ Notes:
 - `@tag feature_flags: [new_dashboard: true]` sets a global boolean override, so
   it's honored even when the LiveView checks `enabled?(:new_dashboard, for: user)`.
 - Use `enable_flag(flag, actor)` / `disable_flag(flag, actor)` to override for a
-  specific user — useful for testing per-actor or per-group gates.
+  specific user, useful for testing per-actor or per-group gates.
 - `register_and_log_in_user` is the `mix phx.gen.auth` helper; it puts the user
   in the session so `current_user` is assigned.
-
-## Recap
-
-- Implement `Bandera.Actor` (and `Bandera.Group`) for your user struct.
-- Read flags in `mount/3`, assign the result, branch with `:if`.
-- Re-check flags in `handle_event/3` before performing gated actions.
-- In tests, `use Bandera.Test`, set flags with `@tag feature_flags:` or
-  `enable_flag/1,2`, and keep `async: true`.
