@@ -47,21 +47,42 @@ defmodule Bandera.Flag do
 
   def enabled?(%__MODULE__{gates: []}, _options), do: false
 
-  def enabled?(%__MODULE__{gates: gates}, []) do
-    check_boolean_gate(gates) || check_percentage_of_time_gate(gates)
+  def enabled?(%__MODULE__{gates: gates, name: name}, options) do
+    item = Keyword.get(options, :for)
+    context = Keyword.get(options, :context, %{})
+
+    cond do
+      item != nil -> evaluate(gates, name, item, context)
+      context != %{} -> check_rule_gates(gates, context) || base(gates)
+      true -> base(gates)
+    end
   end
 
-  def enabled?(%__MODULE__{gates: gates, name: flag_name}, for: item) do
+  defp evaluate(gates, name, item, context) do
     case check_actor_gates(gates, item) do
       {:ok, result} ->
         result
 
       :ignore ->
         case check_group_gates(gates, item) do
-          {:ok, result} -> result
-          :ignore -> check_boolean_gate(gates) || check_percentage_gate(gates, item, flag_name)
+          {:ok, result} ->
+            result
+
+          :ignore ->
+            check_rule_gates(gates, context) || base(gates) ||
+              check_percentage_gate(gates, item, name)
         end
     end
+  end
+
+  defp base(gates), do: check_boolean_gate(gates) || check_percentage_of_time_gate(gates)
+
+  defp check_rule_gates(gates, context) do
+    gates
+    |> Enum.filter(&Gate.rule?/1)
+    |> Enum.any?(fn %Gate{value: constraints, enabled: enabled} ->
+      enabled and Enum.all?(constraints, &Bandera.Constraint.match?(&1, context))
+    end)
   end
 
   defp check_actor_gates(gates, item) do

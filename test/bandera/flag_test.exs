@@ -70,6 +70,31 @@ defmodule Bandera.FlagTest do
     assert Enum.uniq(results) == [expected]
   end
 
+  describe "rule gates with context" do
+    test "matches when all constraints satisfy the context" do
+      gate = Bandera.Gate.new(:rule, [Bandera.Constraint.new("plan", :eq, "premium")], true)
+      flag = Bandera.Flag.new(:f, [gate])
+      assert Bandera.Flag.enabled?(flag, context: %{"plan" => "premium"})
+      refute Bandera.Flag.enabled?(flag, context: %{"plan" => "free"})
+    end
+
+    test "rule + boolean fallback: rule miss falls through to boolean" do
+      flag =
+        Bandera.Flag.new(:f, [
+          Bandera.Gate.new(:rule, [Bandera.Constraint.new("plan", :eq, "premium")], true),
+          Bandera.Gate.new(:boolean, false)
+        ])
+
+      refute Bandera.Flag.enabled?(flag, context: %{"plan" => "free"})
+    end
+
+    test "existing for: behaviour is unchanged" do
+      flag = Bandera.Flag.new(:f, [Bandera.Gate.new(:actor, %{id: 1}, true)])
+      assert Bandera.Flag.enabled?(flag, for: %{id: 1})
+      refute Bandera.Flag.enabled?(flag, for: %{id: 2})
+    end
+  end
+
   describe "variant/2" do
     test "returns the :default when the flag has no variant gate" do
       flag = Bandera.Flag.new(:f, [Bandera.Gate.new(:boolean, true)])
