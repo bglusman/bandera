@@ -250,6 +250,63 @@ defmodule Bandera do
   defp do_clear(flag_name, for_percentage: true),
     do: clear_gate(flag_name, Gate.new(:percentage_of_time, 0.5))
 
+  # ---- variant ----
+
+  @doc """
+  Returns the variant chosen for the actor named `flag_name`, or `options[:default]`
+  (nil if not given) when the flag is missing or has no variant gate.
+
+  Looks up the flag from the active store and delegates to `Flag.variant/2`. A missing
+  flag or store lookup error returns `options[:default]` (the error is logged).
+
+  ## Examples
+
+      iex> Bandera.put_variants(:ab_test, %{"a" => 1, "b" => 1})
+      iex> Bandera.variant(:ab_test, for: %{id: 1}) in ["a", "b"]
+      true
+  """
+  @spec variant(atom, keyword) :: term
+  def variant(flag_name, options \\ []) when is_atom(flag_name) do
+    default = Keyword.get(options, :default)
+
+    result =
+      case Store.active().lookup(flag_name) do
+        {:ok, flag} -> Flag.variant(flag, options)
+        error -> variant_lookup_failed(flag_name, error, default)
+      end
+
+    Bandera.Telemetry.event([:variant], %{flag_name: flag_name, options: options, result: result})
+    result
+  end
+
+  @doc """
+  Stores a `:variant` gate for `flag_name` with the given `weights` map.
+
+  `weights` is a `%{variant_name => weight}` map; actors are bucketed proportionally
+  by weight using a stable SHA-256 hash per actor+flag. Returns `{:ok, flag}` on
+  success, `{:error, reason}` on a store write failure.
+
+  ## Examples
+
+      iex> {:ok, flag} = Bandera.put_variants(:hero, %{"blue" => 1, "green" => 1})
+      iex> flag.name
+      :hero
+  """
+  @spec put_variants(atom, %{optional(String.t()) => number}, keyword) ::
+          {:ok, Flag.t()} | {:error, term}
+  def put_variants(flag_name, weights, _options \\ [])
+      when is_atom(flag_name) and is_map(weights) do
+    Bandera.Telemetry.span([:put_variants], %{flag_name: flag_name, weights: weights}, fn ->
+      result = Store.active().put(flag_name, Gate.new(:variant, weights))
+      {result, %{result: result}}
+    end)
+  end
+
+  defp variant_lookup_failed(flag_name, error, default) do
+    Logger.warning("[Bandera] variant lookup for #{inspect(flag_name)} failed: #{inspect(error)}")
+    default
+  end
+
   # ---- introspection ----
 
   @doc """
