@@ -175,6 +175,64 @@ or has no variant gate. The actor bucketing is identical to the one used by
 `percentage_of_actors` gates — an actor's position in the weight range is
 deterministic but different per flag.
 
+## Targeting rules & segments
+
+Flags can target arbitrary attributes in an **evaluation context** map — without
+deploying code. Rules are stored as data in the flags table.
+
+### Context-based rules
+
+Pass a `context:` map to `enabled?/2` and use `enable(flag, when: constraints)`
+to define which context values grant access:
+
+```elixir
+# Enable only for premium US users
+Bandera.enable(:new_billing,
+  when: [
+    {"plan", :eq, "premium"},
+    {"country", :eq, "US"}
+  ]
+)
+
+# All constraints must match (AND semantics)
+Bandera.enabled?(:new_billing, context: %{"plan" => "premium", "country" => "US"})
+#=> true
+
+Bandera.enabled?(:new_billing, context: %{"plan" => "free", "country" => "US"})
+#=> false
+```
+
+Supported operators: `:eq`, `:neq`, `:in`, `:not_in`, `:contains`, `:gt`,
+`:gte`, `:lt`, `:lte`, `:matches` (regex).
+
+### Reusable segments
+
+Define a **segment** once and reference it from many flags:
+
+```elixir
+# Store a named set of constraints
+Bandera.put_segment(:premium_us, [
+  {"plan", :eq, "premium"},
+  {"country", :eq, "US"}
+])
+
+# Enable flags by referencing the segment
+Bandera.enable(:new_billing, for_segment: :premium_us)
+Bandera.enable(:advanced_reports, for_segment: :premium_us)
+
+# Check is the same — pass context:
+Bandera.enabled?(:new_billing, context: %{"plan" => "premium", "country" => "US"})
+#=> true
+```
+
+Segment constraints are expanded at evaluation time; changing a segment's rules
+automatically affects every flag that references it.
+
+### Evaluation precedence
+
+When `:for` and `:context` are both present, precedence is:
+actor gates → group gates → rule/segment gates → boolean gate → percentage gates.
+
 ### Migrating an existing Ecto install (schema v2)
 
 If you already have the Bandera flags table and want to add variant support,
