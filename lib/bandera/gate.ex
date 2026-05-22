@@ -15,7 +15,9 @@ defmodule Bandera.Gate do
             | :percentage_of_actors
             | :variant
             | :rule
-            | :segment,
+            | :segment
+            | :prerequisite
+            | :schedule,
           for: term,
           enabled: boolean,
           value: term
@@ -78,6 +80,11 @@ defmodule Bandera.Gate do
     raise InvalidTargetError, "variant gates require a non-empty %{name => weight} map"
   end
 
+  @spec new(:schedule, {String.t() | nil, String.t() | nil}) :: t
+  def new(:schedule, {from, until}) do
+    %__MODULE__{type: :schedule, for: nil, enabled: true, value: %{"from" => from, "until" => until}}
+  end
+
   @doc """
   Builds an `:actor` or `:group` gate targeting `for` with the boolean `enabled`.
 
@@ -110,6 +117,12 @@ defmodule Bandera.Gate do
   @spec new(:segment, atom | String.t(), boolean) :: t
   def new(:segment, name, enabled) when is_boolean(enabled) do
     %__MODULE__{type: :segment, for: to_string(name), enabled: enabled}
+  end
+
+  @spec new(:prerequisite, atom, boolean) :: t
+  def new(:prerequisite, other_flag, required)
+      when is_atom(other_flag) and is_boolean(required) do
+    %__MODULE__{type: :prerequisite, for: other_flag, enabled: required}
   end
 
   @doc """
@@ -233,6 +246,20 @@ defmodule Bandera.Gate do
   def segment?(%__MODULE__{}), do: false
 
   @doc """
+  Returns `true` if the gate is a `:prerequisite` gate.
+  """
+  @spec prerequisite?(t) :: boolean
+  def prerequisite?(%__MODULE__{type: :prerequisite}), do: true
+  def prerequisite?(%__MODULE__{}), do: false
+
+  @doc """
+  Returns `true` if the gate is a `:schedule` gate.
+  """
+  @spec schedule?(t) :: boolean
+  def schedule?(%__MODULE__{type: :schedule}), do: true
+  def schedule?(%__MODULE__{}), do: false
+
+  @doc """
   Returns the gate's storage id, used as the per-flag slot key.
 
   Both percentage gate types collapse to `"percentage"` (a flag holds at most one
@@ -258,6 +285,8 @@ defmodule Bandera.Gate do
   def id(%__MODULE__{type: :variant}), do: "variant"
   def id(%__MODULE__{type: :rule}), do: "rule"
   def id(%__MODULE__{type: :segment, for: name}), do: "segment/#{name}"
+  def id(%__MODULE__{type: :prerequisite, for: f}), do: "prerequisite/#{f}"
+  def id(%__MODULE__{type: :schedule}), do: "schedule"
 
   @doc """
   Evaluates a single gate against `options`.
@@ -281,6 +310,11 @@ defmodule Bandera.Gate do
   """
   @spec enabled?(t, keyword) :: {:ok, boolean} | :ignore
   def enabled?(gate, options \\ [])
+
+  def enabled?(%__MODULE__{type: :schedule, value: %{"from" => from, "until" => until}}, _opts) do
+    now = DateTime.utc_now()
+    {:ok, after?(now, from) and before?(now, until)}
+  end
 
   def enabled?(%__MODULE__{type: :boolean, enabled: enabled}, _options) do
     {:ok, enabled}
@@ -332,4 +366,12 @@ defmodule Bandera.Gate do
     <<score::size(16), _rest::binary>> = :crypto.hash(:sha256, blob)
     score / 65_536
   end
+
+  defp after?(_now, nil), do: true
+  defp after?(now, iso), do: DateTime.compare(now, parse!(iso)) != :lt
+
+  defp before?(_now, nil), do: true
+  defp before?(now, iso), do: DateTime.compare(now, parse!(iso)) == :lt
+
+  defp parse!(iso), do: iso |> DateTime.from_iso8601() |> elem(1)
 end

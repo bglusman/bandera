@@ -71,6 +71,26 @@ defmodule Bandera.GateTest do
     assert Bandera.Gate.id(gate) == "rule"
   end
 
+  test "prerequisite gate references another flag + required state" do
+    gate = Bandera.Gate.new(:prerequisite, :parent, true)
+    assert %Bandera.Gate{type: :prerequisite, for: :parent, enabled: true} = gate
+    assert Bandera.Gate.prerequisite?(gate)
+    assert Bandera.Gate.id(gate) == "prerequisite/parent"
+  end
+
+  describe "schedule gates" do
+    test "active inside the window, inactive outside" do
+      past = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.to_iso8601()
+      future = DateTime.utc_now() |> DateTime.add(3600, :second) |> DateTime.to_iso8601()
+
+      open = Bandera.Gate.new(:schedule, {past, future})
+      assert {:ok, true} = Bandera.Gate.enabled?(open)
+
+      not_yet = Bandera.Gate.new(:schedule, {future, nil})
+      assert {:ok, false} = Bandera.Gate.enabled?(not_yet)
+    end
+  end
+
   describe "variant gates" do
     test "new/2 builds a variant gate holding the weights map in :value" do
       gate = Bandera.Gate.new(:variant, %{"blue" => 1, "green" => 1})
