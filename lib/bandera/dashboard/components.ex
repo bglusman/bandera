@@ -64,13 +64,15 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       border: 1px solid var(--bandera-border, #e2e8f0);
       border-radius: var(--bandera-radius, 10px);
     }
-    .bandera-editor form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .bandera-editor form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .bandera-editor form .bandera-input[type="text"] { flex: 1 1 160px; }
+    .bandera-input[type="number"] { width: 92px; }
     .bandera-fieldset {
-      margin: 0 0 12px; padding: 10px 12px 12px;
+      margin: 0 0 14px; padding: 12px 14px 14px;
       border: 1px solid var(--bandera-border, #e2e8f0);
       border-radius: var(--bandera-radius-sm, 8px);
     }
-    .bandera-fieldset:last-of-type { margin-bottom: 0; }
+    .bandera-fieldset:last-of-type { margin-bottom: 12px; }
     .bandera-legend {
       font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 0 4px;
       color: var(--bandera-muted, #94a3b8);
@@ -120,12 +122,24 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     .bandera-icon-btn:hover { color: inherit; background: var(--bandera-surface-2, #f1f5f9); }
 
     .bandera-toggle {
-      cursor: pointer; border: none; border-radius: 999px; padding: 5px 14px;
-      font: inherit; font-size: 12px; font-weight: 600;
-      background: var(--bandera-success, #16a34a); color: #ffffff;
-      transition: background 0.12s ease;
+      appearance: none; -webkit-appearance: none; box-sizing: border-box;
+      position: relative; flex: none; display: inline-block; vertical-align: middle;
+      width: 44px; height: 24px; padding: 0; border: none; border-radius: 999px;
+      cursor: pointer; font-size: 0; color: transparent;
+      background: var(--bandera-success, #16a34a);
+      transition: background 0.15s ease;
     }
-    .bandera-toggle.bandera-off { background: var(--bandera-off, #cbd5e1); color: #475569; }
+    .bandera-toggle::before {
+      content: ""; position: absolute; top: 3px; left: 3px;
+      width: 18px; height: 18px; border-radius: 50%; background: #ffffff;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.25);
+      transition: transform 0.15s ease; transform: translateX(20px);
+    }
+    .bandera-toggle:focus-visible {
+      outline: 2px solid var(--bandera-primary, #6d28d9); outline-offset: 2px;
+    }
+    .bandera-toggle.bandera-off { background: var(--bandera-off, #cbd5e1); }
+    .bandera-toggle.bandera-off::before { transform: translateX(0); }
 
     .bandera-flash {
       padding: 10px 12px; margin-bottom: 14px; font-size: 14px;
