@@ -149,6 +149,50 @@ defimpl Bandera.Group, for: MyApp.User do
 end
 ```
 
+## Multivariate flags
+
+Instead of a binary on/off, a flag can return one of N named variants. Actors
+are assigned a variant by a stable SHA-256 hash (same actor + flag → same
+variant across nodes and restarts), weighted proportionally:
+
+```elixir
+# Create a 50/50 A/B test
+Bandera.put_variants(:hero_cta, %{"control" => 1, "treatment" => 1})
+
+# Resolve which variant the current user sees
+variant = Bandera.variant(:hero_cta, for: current_user)
+# => "control" or "treatment", same value for the same user every time
+
+# Fallback when the flag is missing or has no variant gate
+Bandera.variant(:hero_cta, default: "control")
+
+# Weighted split: 10% treatment, 90% control
+Bandera.put_variants(:checkout, %{"control" => 9, "new_flow" => 1})
+```
+
+`variant/2` returns `nil` (or `options[:default]`) when the flag does not exist
+or has no variant gate. The actor bucketing is identical to the one used by
+`percentage_of_actors` gates — an actor's position in the weight range is
+deterministic but different per flag.
+
+### Migrating an existing Ecto install (schema v2)
+
+If you already have the Bandera flags table and want to add variant support,
+run this one-time helper from a new migration:
+
+```elixir
+defmodule MyApp.Repo.Migrations.BanderaSchemaV2 do
+  use Ecto.Migration
+
+  def up, do: Bandera.Ecto.Migrations.upgrade_v2()
+  def down, do: :ok
+end
+```
+
+`upgrade_v2/0` adds the nullable `value` column to an existing table via
+`add_if_not_exists`, so it is safe to run even if the column already exists.
+New installs calling `Bandera.Ecto.Migrations.up()` get the column automatically.
+
 ## Testing
 
 Bandera's test layer scopes flag overrides to the test process (and its
