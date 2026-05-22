@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-22
+
+### Added
+
+- Phoenix LiveView flag dashboard (`Bandera.Dashboard.Router` and
+  `Bandera.Dashboard.FlagsLive`): grouped flags with state summaries, live
+  search filtering, row expand/collapse, boolean toggling, actor and group
+  gate management, percentage set/clear, and clearing a whole flag.
+- Cross-node live refresh: the dashboard updates in real time when flags
+  change on other nodes, via Phoenix.PubSub.
+- Themeable dashboard UI that works standalone or with daisyUI, including a
+  switch-style boolean toggle and assorted UX polish (`Bandera.Dashboard.Theme`).
+- Name-prefix flag grouping with a runtime-configurable `:group_separator`.
+- Dev-only local dashboard preview server (`dev/preview.exs`).
+
+### Changed
+
+- Use Elixir's built-in `JSON` module instead of `jason`; the `jason`
+  dependency has been dropped.
+- Require Elixir `~> 1.18`.
+
 ## [0.1.0]
 
 Initial release.
@@ -24,5 +45,6 @@ Initial release.
   NimbleOwnership.
 - `:telemetry` events for reads, writes, and the persistence layer.
 
-[Unreleased]: https://github.com/ch4s3/bandera/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ch4s3/bandera/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ch4s3/bandera/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ch4s3/bandera/releases/tag/v0.1.0
