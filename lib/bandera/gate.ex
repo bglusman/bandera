@@ -8,7 +8,14 @@ defmodule Bandera.Gate do
 
   @type t :: %__MODULE__{
           type:
-            :boolean | :actor | :group | :percentage_of_time | :percentage_of_actors | :variant,
+            :boolean
+            | :actor
+            | :group
+            | :percentage_of_time
+            | :percentage_of_actors
+            | :variant
+            | :rule
+            | :segment,
           for: term,
           enabled: boolean,
           value: term
@@ -93,6 +100,11 @@ defmodule Bandera.Gate do
   @spec new(:group, atom | String.t(), boolean) :: t
   def new(:group, group_name, enabled) when is_boolean(enabled) do
     %__MODULE__{type: :group, for: to_string(group_name), enabled: enabled}
+  end
+
+  @spec new(:rule, [Bandera.Constraint.t()], boolean) :: t
+  def new(:rule, constraints, enabled) when is_list(constraints) and is_boolean(enabled) do
+    %__MODULE__{type: :rule, for: nil, enabled: enabled, value: constraints}
   end
 
   @doc """
@@ -186,6 +198,21 @@ defmodule Bandera.Gate do
   def variant?(%__MODULE__{}), do: false
 
   @doc """
+  Returns `true` if the gate is a `:rule` gate.
+
+  ## Examples
+
+      iex> Bandera.Gate.rule?(Bandera.Gate.new(:rule, [], true))
+      true
+
+      iex> Bandera.Gate.rule?(Bandera.Gate.new(:boolean, true))
+      false
+  """
+  @spec rule?(t) :: boolean
+  def rule?(%__MODULE__{type: :rule}), do: true
+  def rule?(%__MODULE__{}), do: false
+
+  @doc """
   Returns the gate's storage id, used as the per-flag slot key.
 
   Both percentage gate types collapse to `"percentage"` (a flag holds at most one
@@ -209,6 +236,7 @@ defmodule Bandera.Gate do
   def id(%__MODULE__{type: :percentage_of_time}), do: "percentage"
   def id(%__MODULE__{type: :percentage_of_actors}), do: "percentage"
   def id(%__MODULE__{type: :variant}), do: "variant"
+  def id(%__MODULE__{type: :rule}), do: "rule"
 
   @doc """
   Evaluates a single gate against `options`.

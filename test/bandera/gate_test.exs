@@ -63,6 +63,14 @@ defmodule Bandera.GateTest do
     assert is_boolean(value)
   end
 
+  test "rule gate holds constraints in :value" do
+    constraints = [Bandera.Constraint.new("plan", :eq, "premium")]
+    gate = Bandera.Gate.new(:rule, constraints, true)
+    assert %Bandera.Gate{type: :rule, for: nil, enabled: true, value: ^constraints} = gate
+    assert Bandera.Gate.rule?(gate)
+    assert Bandera.Gate.id(gate) == "rule"
+  end
+
   describe "variant gates" do
     test "new/2 builds a variant gate holding the weights map in :value" do
       gate = Bandera.Gate.new(:variant, %{"blue" => 1, "green" => 1})
