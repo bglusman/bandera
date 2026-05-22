@@ -1,0 +1,62 @@
+defmodule Bandera.UsageTest do
+  use ExUnit.Case, async: false
+  alias Bandera.Store.Cache
+  alias Bandera.Store.Persistent.Memory
+  alias Bandera.Usage
+
+  setup do
+    start_supervised!(Memory)
+    start_supervised!(Cache)
+    Application.put_env(:bandera, :cache, enabled: true, ttl: 900)
+    Application.put_env(:bandera, :persistence, adapter: Memory)
+    Application.put_env(:bandera, :store, Bandera.Store.TwoLevel)
+    Bandera.reload_config()
+    start_supervised!(Usage)
+    :ok = Usage.attach()
+
+    on_exit(fn ->
+      Usage.detach()
+      Application.delete_env(:bandera, :cache)
+      Application.delete_env(:bandera, :persistence)
+      Application.delete_env(:bandera, :store)
+      Bandera.reload_config()
+    end)
+
+    :ok
+  end
+
+  test "records the last time a flag was evaluated" do
+    refute Usage.last_evaluated(:never_checked)
+
+    :telemetry.execute([:bandera, :enabled?], %{system_time: 1}, %{
+      flag_name: :checked,
+      options: [],
+      result: false
+    })
+
+    assert %DateTime{} = Usage.last_evaluated(:checked)
+  end
+
+  test "stale_flags returns flags not evaluated within the window" do
+    {:ok, _} = Bandera.enable(:fresh)
+    {:ok, _} = Bandera.enable(:old)
+
+    # mark :fresh as just-evaluated; leave :old with no/old usage
+    :ets.insert(Bandera.Usage, {:fresh, DateTime.utc_now()})
+    :ets.insert(Bandera.Usage, {:old, DateTime.add(DateTime.utc_now(), -100, :day)})
+
+    assert :old in Bandera.stale_flags(older_than: 30)
+    refute :fresh in Bandera.stale_flags(older_than: 30)
+  end
+
+  test "mix bandera.flags --stale prints stale flag names" do
+    import ExUnit.CaptureIO
+    {:ok, _} = Bandera.enable(:old)
+    :ets.insert(Bandera.Usage, {:old, DateTime.add(DateTime.utc_now(), -100, :day)})
+
+    output =
+      capture_io(fn -> Mix.Tasks.Bandera.Flags.run(["--stale", "--older-than", "30"]) end)
+
+    assert output =~ "old"
+  end
+end
