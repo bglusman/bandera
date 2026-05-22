@@ -125,6 +125,38 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       {:noreply, refresh(socket)}
     end
 
+    def handle_event(
+          "set_percentage",
+          %{"flag" => name, "percent" => percent, "kind" => kind},
+          socket
+        ) do
+      with {pct, ""} <- Integer.parse(String.trim(percent)),
+           true <- pct >= 1 and pct <= 99,
+           {:ok, gate_kind} <- percentage_kind(kind) do
+        Bandera.enable(String.to_existing_atom(name), for_percentage_of: {gate_kind, pct / 100})
+        {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
+      else
+        _ ->
+          {:noreply,
+           assign(socket, :flash_error, "Percentage must be a whole number between 1 and 99.")}
+      end
+    end
+
+    def handle_event("clear_percentage", %{"flag" => name}, socket) do
+      Bandera.clear(String.to_existing_atom(name), for_percentage: true)
+      {:noreply, refresh(socket)}
+    end
+
+    def handle_event("clear_flag", %{"flag" => name}, socket) do
+      flag_name = String.to_existing_atom(name)
+      Bandera.clear(flag_name)
+
+      {:noreply,
+       socket
+       |> update(:expanded, &MapSet.delete(&1, name))
+       |> refresh()}
+    end
+
     # ---- editor (inline; extract into Components later if it grows) ----
 
     defp render_editor(assigns, flag) do
@@ -250,5 +282,9 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     defp refresh(socket), do: load_flags(socket)
+
+    defp percentage_kind("actors"), do: {:ok, :actors}
+    defp percentage_kind("time"), do: {:ok, :time}
+    defp percentage_kind(_), do: :error
   end
 end

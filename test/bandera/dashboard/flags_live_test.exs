@@ -110,4 +110,41 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     html = render_click(live, "remove_group", %{"flag" => "billing_invoices", "group" => "beta"})
     refute html =~ ">beta<"
   end
+
+  test "set and clear a percentage gate, with validation", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    html =
+      render_submit(live, "set_percentage", %{
+        "flag" => "billing_invoices",
+        "percent" => "25",
+        "kind" => "actors"
+      })
+
+    assert html =~ "25% of actors"
+
+    html =
+      render_submit(live, "set_percentage", %{
+        "flag" => "billing_invoices",
+        "percent" => "0",
+        "kind" => "actors"
+      })
+
+    assert html =~ "between 1 and 99"
+
+    html = render_click(live, "clear_percentage", %{"flag" => "billing_invoices"})
+    refute html =~ "% of actors"
+  end
+
+  test "clearing a flag removes it from the list", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, html} = live(conn, "/flags")
+    assert html =~ "invoices"
+
+    html = render_click(live, "clear_flag", %{"flag" => "billing_invoices"})
+    refute html =~ "invoices"
+    refute Bandera.enabled?(:billing_invoices)
+  end
 end
