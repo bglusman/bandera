@@ -42,11 +42,24 @@ if Code.ensure_loaded?(Ecto.Migration) do
       :ok
     end
 
-    @doc "Add the schema-v2 `value` column to an existing flags table."
+    @doc """
+    Add the schema-v2 `value` column to an existing flags table.
+
+    Call once from the `up/0` of a versioned migration in an existing install:
+
+        defmodule MyApp.Repo.Migrations.UpgradeBanderaV2 do
+          use Ecto.Migration
+          def up, do: Bandera.Ecto.Migrations.upgrade_v2()
+        end
+
+    Uses a plain `add/2` (not `add_if_not_exists/2`) so it works on adapters such as
+    SQLite3 that reject conditional column additions; migration versioning ensures it
+    runs only once.
+    """
     @spec upgrade_v2() :: :ok
     def upgrade_v2 do
       alter table(Bandera.Config.ecto_table_name()) do
-        add_if_not_exists(:value, :string)
+        add(:value, :string)
       end
 
       :ok

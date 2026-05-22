@@ -60,7 +60,11 @@ defmodule Bandera.Gate do
 
   @spec new(:variant, %{optional(String.t()) => number}) :: t
   def new(:variant, weights) when is_map(weights) and map_size(weights) > 0 do
-    %__MODULE__{type: :variant, for: nil, enabled: true, value: weights}
+    if Enum.any?(weights, fn {_name, weight} -> weight > 0 end) do
+      %__MODULE__{type: :variant, for: nil, enabled: true, value: weights}
+    else
+      raise InvalidTargetError, "variant gates require at least one positive weight"
+    end
   end
 
   def new(:variant, _weights) do

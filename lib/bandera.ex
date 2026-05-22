@@ -253,8 +253,9 @@ defmodule Bandera do
   # ---- variant ----
 
   @doc """
-  Returns the variant chosen for the actor named `flag_name`, or `options[:default]`
-  (nil if not given) when the flag is missing or has no variant gate.
+  Returns the variant chosen for the flag named `flag_name` (bucketed by the actor
+  passed via `for:`), or `options[:default]` (nil if not given) when the flag is
+  missing or has no variant gate.
 
   Looks up the flag from the active store and delegates to `Flag.variant/2`. A missing
   flag or store lookup error returns `options[:default]` (the error is logged).

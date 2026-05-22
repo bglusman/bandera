@@ -85,5 +85,11 @@ defmodule Bandera.GateTest do
     test "new/2 rejects an empty weights map" do
       assert_raise Bandera.Gate.InvalidTargetError, fn -> Bandera.Gate.new(:variant, %{}) end
     end
+
+    test "new/2 rejects an all-zero weights map" do
+      assert_raise Bandera.Gate.InvalidTargetError, fn ->
+        Bandera.Gate.new(:variant, %{"a" => 0, "b" => 0})
+      end
+    end
   end
 end
