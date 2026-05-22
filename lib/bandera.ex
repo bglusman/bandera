@@ -450,6 +450,36 @@ defmodule Bandera do
     end
   end
 
+  @doc """
+  List flags whose last evaluation is older than `older_than` days (or never
+  evaluated). Requires `Bandera.Usage` to be running and attached.
+  """
+  @spec stale_flags(keyword) :: [atom]
+  def stale_flags(opts \\ []) do
+    days = Keyword.get(opts, :older_than, 30)
+    cutoff = DateTime.add(DateTime.utc_now(), -days * 86_400, :second)
+
+    case all_flag_names() do
+      {:ok, names} ->
+        Enum.filter(names, fn name ->
+          case safe_last_evaluated(name) do
+            nil -> true
+            at -> DateTime.compare(at, cutoff) == :lt
+          end
+        end)
+
+      _ ->
+        []
+    end
+  end
+
+  # Calls Usage.last_evaluated but returns nil when the Usage table isn't running.
+  defp safe_last_evaluated(flag_name) do
+    Bandera.Usage.last_evaluated(flag_name)
+  rescue
+    ArgumentError -> nil
+  end
+
   defp prerequisites_met?(%Flag{gates: gates}, eval_opts, visited) do
     gates
     |> Enum.filter(&Gate.prerequisite?/1)
