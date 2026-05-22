@@ -329,6 +329,52 @@ Call `Bandera.Audit.detach/1` with the same handler id to stop receiving events:
 Bandera.Audit.detach(:my_audit)
 ```
 
+## Stale flags
+
+Bandera can tell you which flags haven't been evaluated recently, so you can
+prune flags that are no longer in use.
+
+Start `Bandera.Usage` in your supervision tree and call `attach/0` once at
+boot:
+
+```elixir
+# In your application start/2:
+children = [
+  # ... your other children ...
+  Bandera.Usage
+]
+Supervisor.start_link(children, strategy: :one_for_one)
+
+# After the supervisor starts:
+Bandera.Usage.attach()
+```
+
+Then query stale flags from IEx or a scheduled job:
+
+```elixir
+# Flags not evaluated in the past 30 days (default):
+Bandera.stale_flags()
+
+# Custom window:
+Bandera.stale_flags(older_than: 60)
+```
+
+Or use the Mix task from the command line:
+
+```bash
+# List all flags:
+mix bandera.flags
+
+# List stale flags (not evaluated in 30 days):
+mix bandera.flags --stale
+
+# Custom window:
+mix bandera.flags --stale --older-than 60
+```
+
+`Bandera.Usage` is opt-in: nothing breaks when it is not started —
+`stale_flags/1` simply treats every flag as stale.
+
 ## Telemetry
 
 Bandera emits `:telemetry` events for reads (`[:bandera, :enabled?]`), writes
