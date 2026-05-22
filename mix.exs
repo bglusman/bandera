@@ -12,6 +12,7 @@ defmodule Bandera.MixProject do
       deps: deps(),
       description: "Feature flag library with runtime config for storage backends and caching.",
       package: package(),
+      docs: docs(),
       test_coverage: [
         summary: [threshold: 85],
         ignore_modules: [
@@ -47,6 +48,33 @@ defmodule Bandera.MixProject do
     ]
   end
 
+  defp docs do
+    [
+      main: "readme",
+      source_url: @source_url,
+      extras: extras(),
+      groups_for_modules: groups_for_modules()
+    ]
+  end
+
+  defp extras do
+    [
+      "README.md": [title: "Overview"],
+      "guides/dashboard_guide.md": [title: "Flag Dashboard (LiveView UI)"]
+    ]
+  end
+
+  defp groups_for_modules do
+    [
+      Dashboard: [
+        Bandera.Dashboard.Router,
+        Bandera.Dashboard.FlagsLive,
+        Bandera.Dashboard.Components,
+        Bandera.Dashboard.Grouping
+      ]
+    ]
+  end
+
   defp package do
     [
       maintainers: ["Chase Gilliam"],
@@ -54,7 +82,7 @@ defmodule Bandera.MixProject do
       links: %{
         "GitHub" => @source_url
       },
-      files: ~w(.formatter.exs mix.exs README.md lib)
+      files: ~w(.formatter.exs mix.exs README.md lib guides)
     ]
   end
 
