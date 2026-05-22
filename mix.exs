@@ -107,7 +107,8 @@ defmodule Bandera.MixProject do
         Bandera.Dashboard.Router,
         Bandera.Dashboard.FlagsLive,
         Bandera.Dashboard.Components,
-        Bandera.Dashboard.Grouping
+        Bandera.Dashboard.Grouping,
+        Bandera.Dashboard.Theme
       ],
       Testing: [
         Bandera.Test
