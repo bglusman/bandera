@@ -492,26 +492,64 @@ defmodule Bandera do
     ArgumentError -> nil
   end
 
-  defp prerequisites_met?(%Flag{gates: gates}, eval_opts, visited) do
+  defp prerequisites_met?(flag, eval_opts, visited) do
+    {status, _memo} = prereqs_status(flag, eval_opts, visited, %{})
+    status == :ok
+  end
+
+  # Status of a flag's prerequisite gates: :ok (all met), :not_met (a parent is in the
+  # wrong state), or :cycle (resolving a parent re-entered a flag already on the stack).
+  # A cycle propagates as :cycle so it fails closed uniformly — including required:false
+  # edges, which a plain false would otherwise satisfy.
+  defp prereqs_status(%Flag{gates: gates}, eval_opts, visited, memo) do
     gates
     |> Enum.filter(&Gate.prerequisite?/1)
-    |> Enum.all?(fn %Gate{for: parent, enabled: required} ->
+    |> Enum.reduce_while({:ok, memo}, fn %Gate{for: parent, enabled: required}, {_status, m} ->
       cond do
-        parent in visited -> false
-        true -> enabled_within?(parent, eval_opts, visited) == required
+        # An unresolved parent (e.g. an unknown atom from corrupt store data) fails closed.
+        not is_atom(parent) ->
+          {:halt, {:not_met, m}}
+
+        true ->
+          case resolve(parent, eval_opts, visited, m) do
+            {{:ok, enabled}, m} when enabled == required -> {:cont, {:ok, m}}
+            {{:ok, _enabled}, m} -> {:halt, {:not_met, m}}
+            {:cycle, m} -> {:halt, {:cycle, m}}
+          end
       end
     end)
   end
 
-  # Like enabled?/2 but carries the visited set for cycle detection.
-  defp enabled_within?(flag_name, eval_opts, visited) do
-    case Store.active().lookup(flag_name) do
-      {:ok, flag} ->
-        prerequisites_met?(flag, eval_opts, [flag_name | visited]) and
-          Flag.enabled?(expand_segments(flag), eval_opts)
+  # Resolve a flag's effective enabled state, carrying a per-evaluation memo (so a
+  # shared/diamond prerequisite is evaluated once, not re-walked exponentially) and a
+  # visited set for cycle detection. Returns `{{:ok, boolean} | :cycle, memo}`. Cycle
+  # results are never memoized so they stay path-correct.
+  defp resolve(flag_name, eval_opts, visited, memo) do
+    cond do
+      flag_name in visited ->
+        {:cycle, memo}
 
-      _ ->
-        false
+      Map.has_key?(memo, flag_name) ->
+        {{:ok, Map.fetch!(memo, flag_name)}, memo}
+
+      true ->
+        case Store.active().lookup(flag_name) do
+          {:ok, flag} ->
+            case prereqs_status(flag, eval_opts, [flag_name | visited], memo) do
+              {:cycle, m} ->
+                {:cycle, m}
+
+              {:not_met, m} ->
+                {{:ok, false}, Map.put(m, flag_name, false)}
+
+              {:ok, m} ->
+                enabled = Flag.enabled?(expand_segments(flag), eval_opts)
+                {{:ok, enabled}, Map.put(m, flag_name, enabled)}
+            end
+
+          _ ->
+            {{:ok, false}, Map.put(memo, flag_name, false)}
+        end
     end
   end
 
