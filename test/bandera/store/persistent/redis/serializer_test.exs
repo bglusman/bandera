@@ -104,4 +104,26 @@ defmodule Bandera.Store.Persistent.Redis.SerializerTest do
 
     assert %Bandera.Flag{gates: [^gate]} = Serializer.deserialize_flag(:f, [field, value])
   end
+
+  describe "fail-soft deserialization" do
+    import ExUnit.CaptureLog
+
+    test "a corrupt field is dropped and the rest of the flag survives" do
+      {flag, _log} =
+        with_log(fn ->
+          Serializer.deserialize_flag(:f, ["boolean", "true", "variant", "{not json"])
+        end)
+
+      assert %Flag{gates: [%Gate{type: :boolean, enabled: true}]} = flag
+    end
+
+    test "an unknown field is dropped, not raised" do
+      {flag, _log} =
+        with_log(fn ->
+          Serializer.deserialize_flag(:f, ["boolean", "true", "from_the_future", "x"])
+        end)
+
+      assert %Flag{gates: [%Gate{type: :boolean}]} = flag
+    end
+  end
 end

@@ -122,4 +122,36 @@ defmodule Bandera.Store.Persistent.Ecto.SerializerTest do
       assert %{value: nil} = Serializer.to_row(:f, Gate.new(:boolean, true))
     end
   end
+
+  describe "fail-soft deserialization" do
+    import ExUnit.CaptureLog
+
+    test "a corrupt row is dropped and the rest of the flag survives" do
+      good = Serializer.to_row(:f, Gate.new(:boolean, true))
+
+      corrupt = %{
+        gate_type: "variant",
+        target: "_bandera_none",
+        enabled: true,
+        value: "{not json"
+      }
+
+      {flag, _log} = with_log(fn -> Serializer.deserialize_flag(:f, [good, corrupt]) end)
+      assert %Flag{gates: [%Gate{type: :boolean, enabled: true}]} = flag
+    end
+
+    test "an unknown gate_type is dropped, not raised" do
+      good = Serializer.to_row(:f, Gate.new(:boolean, true))
+
+      unknown = %{
+        gate_type: "from_the_future",
+        target: "_bandera_none",
+        enabled: true,
+        value: nil
+      }
+
+      {flag, _log} = with_log(fn -> Serializer.deserialize_flag(:f, [good, unknown]) end)
+      assert %Flag{gates: [%Gate{type: :boolean}]} = flag
+    end
+  end
 end
