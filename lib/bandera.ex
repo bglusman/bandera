@@ -116,9 +116,18 @@ defmodule Bandera do
     * `for_group: group` — enable for a named group
     * `for_percentage_of: {:time, ratio}` — enable for a ratio of calls
     * `for_percentage_of: {:actors, ratio}` — enable for a ratio of actors
+    * `when: constraints` — enable when the evaluation context matches a rule
+    * `for_segment: name` — enable for a reusable named segment
+    * `requires: parent` (or `{parent, required_state}`) — add a prerequisite
+    * `schedule: {from, until}` — enable inside an ISO-8601 time window
 
   `ratio` is a float in `0.0 < r < 1.0`. The write goes to the persistent store and
   busts/refreshes the cache; returns `{:error, reason}` if the store write fails.
+
+  The returned `enabled?` is the immediate state for unconditional/percentage gates.
+  For the **conditional** scopes (`when:`, `for_segment:`, `requires:`, `schedule:`)
+  it is `true` to signal a successful write — those gates are evaluated per call by
+  `enabled?/2` against the relevant context, actor, time, or parent flag.
 
   Pass `by: identity` to record who made the change; it is carried in the write
   telemetry metadata (see `Bandera.Audit`) and does not affect the gate written.
@@ -164,6 +173,9 @@ defmodule Bandera do
 
   defp do_enable(flag_name, for_percentage_of: {:actors, ratio}) when is_atom(flag_name),
     do: put_constant(flag_name, Gate.new(:percentage_of_actors, ratio), true)
+
+  defp do_enable(_flag_name, when: []),
+    do: raise(ArgumentError, "enable/2 :when requires at least one constraint")
 
   defp do_enable(flag_name, when: constraints) when is_atom(flag_name) and is_list(constraints) do
     gate = Gate.new(:rule, Enum.map(constraints, &to_constraint/1), true)
@@ -395,6 +407,9 @@ defmodule Bandera do
       iex> {:ok, _flag} = Bandera.get_flag(:"bandera_segment:premium")
   """
   @spec put_segment(atom, [tuple | Bandera.Constraint.t()]) :: {:ok, Flag.t()} | {:error, term}
+  def put_segment(_name, []),
+    do: raise(ArgumentError, "put_segment/2 requires at least one constraint")
+
   def put_segment(name, constraints) when is_atom(name) and is_list(constraints) do
     gate = Gate.new(:rule, Enum.map(constraints, &to_constraint/1), true)
     Store.active().put(segment_key(name), gate)
@@ -478,7 +493,9 @@ defmodule Bandera do
   """
   @spec stale_flags(keyword) :: [atom]
   def stale_flags(opts \\ []) do
-    days = Keyword.get(opts, :older_than, 30)
+    # Clamp to >= 0 so a negative window can't push the cutoff into the future (which
+    # would report every flag, even freshly-evaluated ones, as stale).
+    days = opts |> Keyword.get(:older_than, 30) |> max(0)
     cutoff = DateTime.add(DateTime.utc_now(), -days * 86_400, :second)
 
     case all_flag_names() do
@@ -508,26 +525,64 @@ defmodule Bandera do
     ArgumentError -> nil
   end
 
-  defp prerequisites_met?(%Flag{gates: gates}, eval_opts, visited) do
+  defp prerequisites_met?(flag, eval_opts, visited) do
+    {status, _memo} = prereqs_status(flag, eval_opts, visited, %{})
+    status == :ok
+  end
+
+  # Status of a flag's prerequisite gates: :ok (all met), :not_met (a parent is in the
+  # wrong state), or :cycle (resolving a parent re-entered a flag already on the stack).
+  # A cycle propagates as :cycle so it fails closed uniformly — including required:false
+  # edges, which a plain false would otherwise satisfy.
+  defp prereqs_status(%Flag{gates: gates}, eval_opts, visited, memo) do
     gates
     |> Enum.filter(&Gate.prerequisite?/1)
-    |> Enum.all?(fn %Gate{for: parent, enabled: required} ->
+    |> Enum.reduce_while({:ok, memo}, fn %Gate{for: parent, enabled: required}, {_status, m} ->
       cond do
-        parent in visited -> false
-        true -> enabled_within?(parent, eval_opts, visited) == required
+        # An unresolved parent (e.g. an unknown atom from corrupt store data) fails closed.
+        not is_atom(parent) ->
+          {:halt, {:not_met, m}}
+
+        true ->
+          case resolve(parent, eval_opts, visited, m) do
+            {{:ok, enabled}, m} when enabled == required -> {:cont, {:ok, m}}
+            {{:ok, _enabled}, m} -> {:halt, {:not_met, m}}
+            {:cycle, m} -> {:halt, {:cycle, m}}
+          end
       end
     end)
   end
 
-  # Like enabled?/2 but carries the visited set for cycle detection.
-  defp enabled_within?(flag_name, eval_opts, visited) do
-    case Store.active().lookup(flag_name) do
-      {:ok, flag} ->
-        prerequisites_met?(flag, eval_opts, [flag_name | visited]) and
-          Flag.enabled?(expand_segments(flag), eval_opts)
+  # Resolve a flag's effective enabled state, carrying a per-evaluation memo (so a
+  # shared/diamond prerequisite is evaluated once, not re-walked exponentially) and a
+  # visited set for cycle detection. Returns `{{:ok, boolean} | :cycle, memo}`. Cycle
+  # results are never memoized so they stay path-correct.
+  defp resolve(flag_name, eval_opts, visited, memo) do
+    cond do
+      flag_name in visited ->
+        {:cycle, memo}
 
-      _ ->
-        false
+      Map.has_key?(memo, flag_name) ->
+        {{:ok, Map.fetch!(memo, flag_name)}, memo}
+
+      true ->
+        case Store.active().lookup(flag_name) do
+          {:ok, flag} ->
+            case prereqs_status(flag, eval_opts, [flag_name | visited], memo) do
+              {:cycle, m} ->
+                {:cycle, m}
+
+              {:not_met, m} ->
+                {{:ok, false}, Map.put(m, flag_name, false)}
+
+              {:ok, m} ->
+                enabled = Flag.enabled?(expand_segments(flag), eval_opts)
+                {{:ok, enabled}, Map.put(m, flag_name, enabled)}
+            end
+
+          _ ->
+            {{:ok, false}, Map.put(memo, flag_name, false)}
+        end
     end
   end
 

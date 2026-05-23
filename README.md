@@ -3,6 +3,7 @@
 [![Hex.pm](https://img.shields.io/hexpm/v/bandera.svg)](https://hex.pm/packages/bandera)
 [![HexDocs](https://img.shields.io/badge/hexdocs-documentation-B1A5EE)](https://hexdocs.pm/bandera)
 [![GitHub Actions](https://github.com/ch4s3/bandera/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ch4s3/bandera/actions)
+[![Coverage Status](https://coveralls.io/repos/github/Ch4s3/bandera/badge.svg?branch=main)](https://coveralls.io/github/Ch4s3/bandera?branch=main)
 
 Feature flags for Elixir with **multivariate variants, data-defined targeting,
 and time-window scheduling** — configured **entirely at runtime**, with an
@@ -77,7 +78,7 @@ further setup for development and single-node use. The persistence and
 notification backends are optional dependencies; add only the ones you use:
 
 ```elixir
-{:ecto_sql, "~> 3.10"},        # Ecto persistence (plus a DB driver, e.g. :postgrex)
+{:ecto_sql, "~> 3.10"},        # Ecto persistence (plus a DB driver: :postgrex or :ecto_sqlite3)
 {:redix, "~> 1.1"},            # Redis persistence and/or Redis PubSub notifications
 {:phoenix_pubsub, "~> 2.1"},   # Phoenix.PubSub cross-node notifications
 {:nimble_ownership, "~> 1.0", only: :test}  # required for the test layer
@@ -121,6 +122,11 @@ end
 ```
 
 The table name is read from your runtime config (default `"bandera_flags"`).
+
+The Ecto adapter is backend-agnostic: it uses only standard column types and
+binds the table at runtime, with no database-specific SQL. It works with any
+Ecto SQL database — Postgres (via `:postgrex`) or SQLite (via `:ecto_sqlite3`).
+SQLite is the backend Bandera's own test suite runs against.
 
 ## Usage
 

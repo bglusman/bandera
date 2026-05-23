@@ -13,6 +13,7 @@ defmodule Bandera.Store.Persistent.Redis.Serializer do
 
   alias Bandera.Flag
   alias Bandera.Gate
+  require Logger
 
   @doc """
   Serializes a gate to the `{field, value}` pair stored in the flag's Redis hash.
@@ -80,9 +81,19 @@ defmodule Bandera.Store.Persistent.Redis.Serializer do
     gates =
       flat
       |> Enum.chunk_every(2)
-      |> Enum.map(&deserialize_pair/1)
+      |> Enum.flat_map(&safe_deserialize_pair/1)
 
     Flag.new(to_atom(flag_name), gates)
+  end
+
+  # A single corrupt/foreign field (bad JSON, unknown field, malformed ratio) must not
+  # crash the whole flag read. Drop it with a warning and keep the rest.
+  defp safe_deserialize_pair(pair) do
+    [deserialize_pair(pair)]
+  rescue
+    error ->
+      Logger.warning("[Bandera] skipping unreadable gate #{inspect(pair)}: #{inspect(error)}")
+      []
   end
 
   defp deserialize_pair(["variant", json]),
@@ -101,7 +112,7 @@ defmodule Bandera.Store.Persistent.Redis.Serializer do
     }
 
   defp deserialize_pair(["prerequisite/" <> parent, value]),
-    do: %Gate{type: :prerequisite, for: String.to_atom(parent), enabled: parse_bool(value)}
+    do: %Gate{type: :prerequisite, for: existing_atom(parent), enabled: parse_bool(value)}
 
   defp deserialize_pair(["schedule", json]),
     do: %Gate{type: :schedule, for: nil, enabled: true, value: Jason.decode!(json)}
@@ -129,4 +140,13 @@ defmodule Bandera.Store.Persistent.Redis.Serializer do
 
   defp to_atom(name) when is_atom(name), do: name
   defp to_atom(name) when is_binary(name), do: String.to_atom(name)
+
+  # Resolve a stored parent-flag name without creating new atoms (atom-exhaustion
+  # guard). If the atom does not exist, keep the string — prerequisite resolution
+  # treats a non-atom parent as unresolved and fails closed.
+  defp existing_atom(name) do
+    String.to_existing_atom(name)
+  rescue
+    ArgumentError -> name
+  end
 end

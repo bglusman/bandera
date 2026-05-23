@@ -87,4 +87,32 @@ defmodule Bandera.PrerequisitesTest do
     parents = for g <- flag.gates, Bandera.Gate.prerequisite?(g), do: g.for
     assert parents == [:parent_b]
   end
+
+  test "required: false cycles fail closed (no contradictory both-enabled result)" do
+    {:ok, _} = Bandera.enable(:m, requires: {:n, false})
+    {:ok, _} = Bandera.enable(:m)
+    {:ok, _} = Bandera.enable(:n, requires: {:m, false})
+    {:ok, _} = Bandera.enable(:n)
+
+    # Each requires the other to be OFF; a cycle must not satisfy both.
+    refute Bandera.enabled?(:m)
+    refute Bandera.enabled?(:n)
+  end
+
+  test "a shared (diamond) prerequisite resolves correctly" do
+    # child -> [left, right]; left -> base; right -> base
+    {:ok, _} = Bandera.enable(:base)
+    {:ok, _} = Bandera.enable(:left, requires: :base)
+    {:ok, _} = Bandera.enable(:left)
+    {:ok, _} = Bandera.enable(:right, requires: :base)
+    {:ok, _} = Bandera.enable(:right)
+    {:ok, _} = Bandera.enable(:child, requires: :left)
+    {:ok, _} = Bandera.enable(:child, requires: :right)
+    {:ok, _} = Bandera.enable(:child)
+
+    assert Bandera.enabled?(:child)
+
+    {:ok, _} = Bandera.disable(:base)
+    refute Bandera.enabled?(:child)
+  end
 end

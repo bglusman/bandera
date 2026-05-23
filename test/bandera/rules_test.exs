@@ -38,4 +38,8 @@ defmodule Bandera.RulesTest do
     {:ok, flag} = Bandera.get_flag(:promo)
     refute Enum.any?(flag.gates, &Bandera.Gate.rule?/1)
   end
+
+  test "enable(when: []) is rejected (an empty rule would match everyone)" do
+    assert_raise ArgumentError, fn -> Bandera.enable(:everyone, when: []) end
+  end
 end

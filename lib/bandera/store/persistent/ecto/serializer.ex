@@ -15,6 +15,7 @@ defmodule Bandera.Store.Persistent.Ecto.Serializer do
 
   alias Bandera.Flag
   alias Bandera.Gate
+  require Logger
 
   @none "_bandera_none"
 
@@ -98,9 +99,20 @@ defmodule Bandera.Store.Persistent.Ecto.Serializer do
     gates =
       rows
       |> Enum.sort_by(&{&1.gate_type, &1.target})
-      |> Enum.map(&to_gate/1)
+      |> Enum.flat_map(&safe_to_gate/1)
 
     Flag.new(to_atom(flag_name), gates)
+  end
+
+  # A single corrupt or foreign row (bad JSON, unknown gate_type, malformed ratio)
+  # must not crash the whole flag read — or, via all_flags/0, the entire listing and
+  # dashboard. Drop the bad gate with a warning and keep the rest.
+  defp safe_to_gate(row) do
+    [to_gate(row)]
+  rescue
+    error ->
+      Logger.warning("[Bandera] skipping unreadable gate row #{inspect(row)}: #{inspect(error)}")
+      []
   end
 
   defp type_and_target(%Gate{type: :percentage_of_time, for: ratio}),
@@ -143,7 +155,7 @@ defmodule Bandera.Store.Persistent.Ecto.Serializer do
     }
 
   defp to_gate(%{gate_type: "prerequisite", target: parent, enabled: required}),
-    do: %Gate{type: :prerequisite, for: String.to_atom(parent), enabled: required}
+    do: %Gate{type: :prerequisite, for: existing_atom(parent), enabled: required}
 
   defp to_gate(%{gate_type: "schedule", value: value}),
     do: %Gate{type: :schedule, for: nil, enabled: true, value: Jason.decode!(value)}
@@ -168,4 +180,13 @@ defmodule Bandera.Store.Persistent.Ecto.Serializer do
 
   defp to_atom(name) when is_atom(name), do: name
   defp to_atom(name) when is_binary(name), do: String.to_atom(name)
+
+  # Resolve a stored parent-flag name without creating new atoms (an atom-exhaustion
+  # guard for corrupt/foreign data). If the atom does not exist, keep the string —
+  # prerequisite resolution treats a non-atom parent as unresolved and fails closed.
+  defp existing_atom(name) do
+    String.to_existing_atom(name)
+  rescue
+    ArgumentError -> name
+  end
 end
