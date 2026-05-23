@@ -450,6 +450,35 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     assert html =~ "Pick a prerequisite flag"
   end
 
+  test "set and clear a schedule gate, with validation", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    html =
+      render_submit(live, "set_schedule", %{
+        "flag" => "billing_invoices",
+        "from" => "2026-01-01T00:00:00Z",
+        "until" => "2026-06-01T00:00:00Z"
+      })
+
+    assert html =~ "scheduled 2026-01-01T00:00:00Z → 2026-06-01T00:00:00Z"
+    assert html =~ ~s(name="from" value="2026-01-01T00:00:00Z")
+    assert html =~ ~s(name="until" value="2026-06-01T00:00:00Z")
+
+    html =
+      render_submit(live, "set_schedule", %{
+        "flag" => "billing_invoices",
+        "from" => "",
+        "until" => ""
+      })
+
+    assert html =~ "start or an end"
+
+    html = render_click(live, "clear_schedule", %{"flag" => "billing_invoices"})
+    refute html =~ "scheduled 2026"
+  end
+
   test "refreshes when another node broadcasts a flag change", %{conn: conn} do
     Application.put_env(:bandera, :cache_bust_notifications,
       enabled: true,

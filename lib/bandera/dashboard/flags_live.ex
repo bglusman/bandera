@@ -305,6 +305,23 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
     end
 
+    def handle_event("set_schedule", %{"flag" => name, "from" => from, "until" => until}, socket) do
+      from = blank_to_nil(from)
+      until = blank_to_nil(until)
+
+      if is_nil(from) and is_nil(until) do
+        {:noreply, assign(socket, :flash_error, "Set a start or an end for the schedule.")}
+      else
+        Bandera.enable(String.to_existing_atom(name), schedule: {from, until})
+        {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
+      end
+    end
+
+    def handle_event("clear_schedule", %{"flag" => name}, socket) do
+      Bandera.clear(String.to_existing_atom(name), schedule: true)
+      {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
+    end
+
     def handle_event("clear_flag", %{"flag" => name}, socket) do
       flag_name = String.to_existing_atom(name)
       Bandera.clear(flag_name)
@@ -414,6 +431,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       {render_rule(assigns, @flag)}
       {render_segments(assigns, @flag)}
       {render_prerequisites(assigns, @flag)}
+      {render_schedule(assigns, @flag)}
 
       <button
         type="button"
@@ -548,6 +566,43 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             <option value="off">off</option>
           </select>
           <button class={Theme.class(@theme, :primary_button)}>add prerequisite</button>
+        </form>
+      </fieldset>
+      """
+    end
+
+    defp render_schedule(assigns, flag) do
+      assigns =
+        assigns
+        |> Phoenix.Component.assign(:flag, flag)
+        |> Phoenix.Component.assign(:window, schedule_window(flag))
+
+      ~H"""
+      <fieldset class={Theme.class(@theme, :fieldset)}>
+        <legend class={Theme.class(@theme, :legend)}>Schedule</legend>
+        <form phx-submit="set_schedule">
+          <input type="hidden" name="flag" value={@flag.name} />
+          <input
+            type="text"
+            name="from"
+            value={@window["from"]}
+            placeholder="from (ISO 8601)"
+            class={Theme.class(@theme, :input)}
+          />
+          <input
+            type="text"
+            name="until"
+            value={@window["until"]}
+            placeholder="until (ISO 8601)"
+            class={Theme.class(@theme, :input)}
+          />
+          <button class={Theme.class(@theme, :primary_button)}>set</button>
+          <button
+            type="button"
+            class={Theme.class(@theme, :neutral_button)}
+            phx-click="clear_schedule"
+            phx-value-flag={@flag.name}
+          >clear</button>
         </form>
       </fieldset>
       """
@@ -695,5 +750,19 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     defp percentage_kind("actors"), do: {:ok, :actors}
     defp percentage_kind("time"), do: {:ok, :time}
     defp percentage_kind(_), do: :error
+
+    defp schedule_window(flag) do
+      case Enum.find(flag.gates, &Bandera.Gate.schedule?/1) do
+        nil -> %{"from" => nil, "until" => nil}
+        gate -> gate.value
+      end
+    end
+
+    defp blank_to_nil(str) do
+      case String.trim(str) do
+        "" -> nil
+        s -> s
+      end
+    end
   end
 end
