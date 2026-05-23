@@ -78,6 +78,16 @@ defmodule Bandera.PrerequisitesTest do
     refute Bandera.enabled?(:billing, context: %{"plan" => "premium"})
   end
 
+  test "clear(requires:) removes one prerequisite gate" do
+    {:ok, _} = Bandera.enable(:child, requires: :parent_a)
+    {:ok, _} = Bandera.enable(:child, requires: :parent_b)
+
+    assert :ok = Bandera.clear(:child, requires: :parent_a)
+    {:ok, flag} = Bandera.get_flag(:child)
+    parents = for g <- flag.gates, Bandera.Gate.prerequisite?(g), do: g.for
+    assert parents == [:parent_b]
+  end
+
   test "required: false cycles fail closed (no contradictory both-enabled result)" do
     {:ok, _} = Bandera.enable(:m, requires: {:n, false})
     {:ok, _} = Bandera.enable(:m)

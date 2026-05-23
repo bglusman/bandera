@@ -295,6 +295,190 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     assert html =~ "btn btn-primary"
   end
 
+  test "add and remove a variant gate", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    html =
+      render_submit(live, "add_variant", %{
+        "flag" => "billing_invoices",
+        "variant" => "blue",
+        "weight" => "1"
+      })
+
+    assert html =~ "variants blue 100%"
+    assert Bandera.variant(:billing_invoices, for: %{id: 1}) == "blue"
+
+    html =
+      render_click(live, "remove_variant", %{"flag" => "billing_invoices", "variant" => "blue"})
+
+    refute html =~ "variants blue"
+  end
+
+  test "add_variant rejects a non-positive weight", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    html =
+      render_submit(live, "add_variant", %{
+        "flag" => "billing_invoices",
+        "variant" => "blue",
+        "weight" => "0"
+      })
+
+    assert html =~ "positive weight"
+  end
+
+  test "add_variant rejects a blank name", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    html =
+      render_submit(live, "add_variant", %{
+        "flag" => "billing_invoices",
+        "variant" => "   ",
+        "weight" => "1"
+      })
+
+    assert html =~ "Variant needs a name"
+  end
+
+  test "add and remove a rule constraint", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    html =
+      render_submit(live, "add_constraint", %{
+        "flag" => "billing_invoices",
+        "attribute" => "plan",
+        "operator" => "eq",
+        "values" => "pro"
+      })
+
+    assert html =~ "rule (1 constraint)"
+    assert html =~ "plan eq pro"
+
+    html =
+      render_click(live, "remove_constraint", %{"flag" => "billing_invoices", "index" => "0"})
+
+    refute html =~ "plan eq pro"
+  end
+
+  test "add_constraint rejects a blank attribute", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    html =
+      render_submit(live, "add_constraint", %{
+        "flag" => "billing_invoices",
+        "attribute" => "  ",
+        "operator" => "eq",
+        "values" => "pro"
+      })
+
+    assert html =~ "attribute and a valid operator"
+  end
+
+  test "add and remove a segment gate", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    html =
+      render_submit(live, "add_segment", %{"flag" => "billing_invoices", "segment" => "premium"})
+
+    assert html =~ "premium"
+    assert html =~ "1 segment"
+
+    html =
+      render_click(live, "remove_segment", %{"flag" => "billing_invoices", "segment" => "premium"})
+
+    refute html =~ ">premium<"
+  end
+
+  test "add_segment with a blank name shows a validation error", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    html = render_submit(live, "add_segment", %{"flag" => "billing_invoices", "segment" => ""})
+    assert html =~ "Segment name can"
+  end
+
+  test "add and remove a prerequisite gate", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, true} = Bandera.enable(:billing_parent)
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    html =
+      render_submit(live, "add_prerequisite", %{
+        "flag" => "billing_invoices",
+        "parent" => "billing_parent",
+        "required" => "on"
+      })
+
+    assert html =~ "billing_parent (must be on)"
+    assert html =~ "1 prerequisite"
+
+    html =
+      render_click(live, "remove_prerequisite", %{
+        "flag" => "billing_invoices",
+        "parent" => "billing_parent"
+      })
+
+    refute html =~ "must be on"
+  end
+
+  test "add_prerequisite with no parent shows a validation error", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    html =
+      render_submit(live, "add_prerequisite", %{
+        "flag" => "billing_invoices",
+        "parent" => "",
+        "required" => "on"
+      })
+
+    assert html =~ "Pick a prerequisite flag"
+  end
+
+  test "set and clear a schedule gate, with validation", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    html =
+      render_submit(live, "set_schedule", %{
+        "flag" => "billing_invoices",
+        "from" => "2026-01-01T00:00:00Z",
+        "until" => "2026-06-01T00:00:00Z"
+      })
+
+    assert html =~ "scheduled 2026-01-01T00:00:00Z → 2026-06-01T00:00:00Z"
+    assert html =~ ~s(name="from" value="2026-01-01T00:00:00Z")
+    assert html =~ ~s(name="until" value="2026-06-01T00:00:00Z")
+
+    html =
+      render_submit(live, "set_schedule", %{
+        "flag" => "billing_invoices",
+        "from" => "",
+        "until" => ""
+      })
+
+    assert html =~ "start or an end"
+
+    html = render_click(live, "clear_schedule", %{"flag" => "billing_invoices"})
+    refute html =~ "scheduled 2026"
+  end
+
   test "refreshes when another node broadcasts a flag change", %{conn: conn} do
     Application.put_env(:bandera, :cache_bust_notifications,
       enabled: true,

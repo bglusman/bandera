@@ -29,6 +29,16 @@ defmodule Bandera.RulesTest do
     refute Bandera.enabled?(:billing, context: %{"plan" => "free", "country" => "US"})
   end
 
+  test "clear(rule: true) removes the rule gate" do
+    {:ok, _} = Bandera.enable(:promo, when: [{"plan", :eq, "pro"}])
+    {:ok, flag} = Bandera.get_flag(:promo)
+    assert Enum.any?(flag.gates, &Bandera.Gate.rule?/1)
+
+    assert :ok = Bandera.clear(:promo, rule: true)
+    {:ok, flag} = Bandera.get_flag(:promo)
+    refute Enum.any?(flag.gates, &Bandera.Gate.rule?/1)
+  end
+
   test "enable(when: []) is rejected (an empty rule would match everyone)" do
     assert_raise ArgumentError, fn -> Bandera.enable(:everyone, when: []) end
   end
