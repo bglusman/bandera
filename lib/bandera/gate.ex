@@ -4,12 +4,23 @@ defmodule Bandera.Gate do
   alias Bandera.Actor
   alias Bandera.Group
 
-  defstruct [:type, :for, :enabled]
+  defstruct [:type, :for, :enabled, :value]
 
   @type t :: %__MODULE__{
-          type: :boolean | :actor | :group | :percentage_of_time | :percentage_of_actors,
+          type:
+            :boolean
+            | :actor
+            | :group
+            | :percentage_of_time
+            | :percentage_of_actors
+            | :variant
+            | :rule
+            | :segment
+            | :prerequisite
+            | :schedule,
           for: term,
-          enabled: boolean
+          enabled: boolean,
+          value: term
         }
 
   defmodule InvalidTargetError do
@@ -20,12 +31,14 @@ defmodule Bandera.Gate do
   @doc """
   Builds a gate of the given `type`.
 
-  The two-argument form covers `:boolean` gates (with a boolean value) and the two
+  The two-argument form covers `:boolean` gates (with a boolean value), the two
   percentage gate types (`:percentage_of_time` / `:percentage_of_actors`, with a
-  ratio strictly between `0.0` and `1.0`). The three-argument form (see below)
-  covers `:actor` and `:group` gates.
+  ratio strictly between `0.0` and `1.0`), and `:variant` gates (with a
+  `%{name => weight}` map). The three-argument form (see below) covers `:actor`
+  and `:group` gates.
 
-  Raises `Bandera.Gate.InvalidTargetError` when a percentage ratio is out of range.
+  Raises `Bandera.Gate.InvalidTargetError` when a percentage ratio is out of range
+  or a variant weights map is empty.
 
   ## Examples
 
@@ -54,6 +67,36 @@ defmodule Bandera.Gate do
     raise InvalidTargetError, "#{type} gates require a ratio in the range 0.0 < r < 1.0"
   end
 
+  @spec new(:variant, %{optional(String.t()) => number}) :: t
+  def new(:variant, weights) when is_map(weights) and map_size(weights) > 0 do
+    values = Map.values(weights)
+
+    cond do
+      not Enum.all?(values, &(is_number(&1) and &1 >= 0)) ->
+        raise InvalidTargetError, "variant weights must be non-negative numbers"
+
+      not Enum.any?(values, &(&1 > 0)) ->
+        raise InvalidTargetError, "variant gates require at least one positive weight"
+
+      true ->
+        %__MODULE__{type: :variant, for: nil, enabled: true, value: weights}
+    end
+  end
+
+  def new(:variant, _weights) do
+    raise InvalidTargetError, "variant gates require a non-empty %{name => weight} map"
+  end
+
+  @spec new(:schedule, {String.t() | nil, String.t() | nil}) :: t
+  def new(:schedule, {from, until}) do
+    %__MODULE__{
+      type: :schedule,
+      for: nil,
+      enabled: true,
+      value: %{"from" => from, "until" => until}
+    }
+  end
+
   @doc """
   Builds an `:actor` or `:group` gate targeting `for` with the boolean `enabled`.
 
@@ -76,6 +119,22 @@ defmodule Bandera.Gate do
   @spec new(:group, atom | String.t(), boolean) :: t
   def new(:group, group_name, enabled) when is_boolean(enabled) do
     %__MODULE__{type: :group, for: to_string(group_name), enabled: enabled}
+  end
+
+  @spec new(:rule, [Bandera.Constraint.t()], boolean) :: t
+  def new(:rule, constraints, enabled) when is_list(constraints) and is_boolean(enabled) do
+    %__MODULE__{type: :rule, for: nil, enabled: enabled, value: constraints}
+  end
+
+  @spec new(:segment, atom | String.t(), boolean) :: t
+  def new(:segment, name, enabled) when is_boolean(enabled) do
+    %__MODULE__{type: :segment, for: to_string(name), enabled: enabled}
+  end
+
+  @spec new(:prerequisite, atom, boolean) :: t
+  def new(:prerequisite, other_flag, required)
+      when is_atom(other_flag) and is_boolean(required) do
+    %__MODULE__{type: :prerequisite, for: other_flag, enabled: required}
   end
 
   @doc """
@@ -154,6 +213,65 @@ defmodule Bandera.Gate do
   def percentage_of_actors?(%__MODULE__{}), do: false
 
   @doc """
+  Returns `true` if the gate is a `:variant` gate.
+
+  ## Examples
+
+      iex> Bandera.Gate.variant?(Bandera.Gate.new(:variant, %{"a" => 1}))
+      true
+
+      iex> Bandera.Gate.variant?(Bandera.Gate.new(:boolean, true))
+      false
+  """
+  @spec variant?(t) :: boolean
+  def variant?(%__MODULE__{type: :variant}), do: true
+  def variant?(%__MODULE__{}), do: false
+
+  @doc """
+  Returns `true` if the gate is a `:rule` gate.
+
+  ## Examples
+
+      iex> Bandera.Gate.rule?(Bandera.Gate.new(:rule, [], true))
+      true
+
+      iex> Bandera.Gate.rule?(Bandera.Gate.new(:boolean, true))
+      false
+  """
+  @spec rule?(t) :: boolean
+  def rule?(%__MODULE__{type: :rule}), do: true
+  def rule?(%__MODULE__{}), do: false
+
+  @doc """
+  Returns `true` if the gate is a `:segment` gate.
+
+  ## Examples
+
+      iex> Bandera.Gate.segment?(Bandera.Gate.new(:segment, :premium, true))
+      true
+
+      iex> Bandera.Gate.segment?(Bandera.Gate.new(:boolean, true))
+      false
+  """
+  @spec segment?(t) :: boolean
+  def segment?(%__MODULE__{type: :segment}), do: true
+  def segment?(%__MODULE__{}), do: false
+
+  @doc """
+  Returns `true` if the gate is a `:prerequisite` gate.
+  """
+  @spec prerequisite?(t) :: boolean
+  def prerequisite?(%__MODULE__{type: :prerequisite}), do: true
+  def prerequisite?(%__MODULE__{}), do: false
+
+  @doc """
+  Returns `true` if the gate is a `:schedule` gate.
+  """
+  @spec schedule?(t) :: boolean
+  def schedule?(%__MODULE__{type: :schedule}), do: true
+  def schedule?(%__MODULE__{}), do: false
+
+  @doc """
   Returns the gate's storage id, used as the per-flag slot key.
 
   Both percentage gate types collapse to `"percentage"` (a flag holds at most one
@@ -176,6 +294,11 @@ defmodule Bandera.Gate do
   def id(%__MODULE__{type: :group, for: group}), do: "group/#{group}"
   def id(%__MODULE__{type: :percentage_of_time}), do: "percentage"
   def id(%__MODULE__{type: :percentage_of_actors}), do: "percentage"
+  def id(%__MODULE__{type: :variant}), do: "variant"
+  def id(%__MODULE__{type: :rule}), do: "rule"
+  def id(%__MODULE__{type: :segment, for: name}), do: "segment/#{name}"
+  def id(%__MODULE__{type: :prerequisite, for: f}), do: "prerequisite/#{f}"
+  def id(%__MODULE__{type: :schedule}), do: "schedule"
 
   @doc """
   Evaluates a single gate against `options`.
@@ -199,6 +322,11 @@ defmodule Bandera.Gate do
   """
   @spec enabled?(t, keyword) :: {:ok, boolean} | :ignore
   def enabled?(gate, options \\ [])
+
+  def enabled?(%__MODULE__{type: :schedule, value: %{"from" => from, "until" => until}}, _opts) do
+    now = DateTime.utc_now()
+    {:ok, after?(now, from) and before?(now, until)}
+  end
 
   def enabled?(%__MODULE__{type: :boolean, enabled: enabled}, _options) do
     {:ok, enabled}
@@ -250,4 +378,34 @@ defmodule Bandera.Gate do
     <<score::size(16), _rest::binary>> = :crypto.hash(:sha256, blob)
     score / 65_536
   end
+
+  # A nil bound is open-ended. A malformed stored bound fails closed (the window is
+  # treated as not-yet-open / already-closed) rather than crashing every evaluation —
+  # schedule values can come from hand-edited or corrupted store rows.
+  defp after?(_now, nil), do: true
+
+  defp after?(now, iso) do
+    case parse(iso) do
+      {:ok, at} -> DateTime.compare(now, at) != :lt
+      :error -> false
+    end
+  end
+
+  defp before?(_now, nil), do: true
+
+  defp before?(now, iso) do
+    case parse(iso) do
+      {:ok, at} -> DateTime.compare(now, at) == :lt
+      :error -> false
+    end
+  end
+
+  defp parse(iso) when is_binary(iso) do
+    case DateTime.from_iso8601(iso) do
+      {:ok, at, _offset} -> {:ok, at}
+      {:error, _reason} -> :error
+    end
+  end
+
+  defp parse(_iso), do: :error
 end

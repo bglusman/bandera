@@ -62,4 +62,103 @@ defmodule Bandera.GateTest do
     assert {:ok, value} = Gate.enabled?(gate)
     assert is_boolean(value)
   end
+
+  test "rule gate holds constraints in :value" do
+    constraints = [Bandera.Constraint.new("plan", :eq, "premium")]
+    gate = Bandera.Gate.new(:rule, constraints, true)
+    assert %Bandera.Gate{type: :rule, for: nil, enabled: true, value: ^constraints} = gate
+    assert Bandera.Gate.rule?(gate)
+    assert Bandera.Gate.id(gate) == "rule"
+  end
+
+  test "prerequisite gate references another flag + required state" do
+    gate = Bandera.Gate.new(:prerequisite, :parent, true)
+    assert %Bandera.Gate{type: :prerequisite, for: :parent, enabled: true} = gate
+    assert Bandera.Gate.prerequisite?(gate)
+    assert Bandera.Gate.id(gate) == "prerequisite/parent"
+  end
+
+  describe "schedule gates" do
+    test "active inside the window, inactive outside" do
+      past = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.to_iso8601()
+      future = DateTime.utc_now() |> DateTime.add(3600, :second) |> DateTime.to_iso8601()
+
+      open = Bandera.Gate.new(:schedule, {past, future})
+      assert {:ok, true} = Bandera.Gate.enabled?(open)
+
+      not_yet = Bandera.Gate.new(:schedule, {future, nil})
+      assert {:ok, false} = Bandera.Gate.enabled?(not_yet)
+    end
+
+    test "a malformed window bound fails closed instead of crashing" do
+      gate = %Bandera.Gate{
+        type: :schedule,
+        for: nil,
+        enabled: true,
+        value: %{"from" => "not-a-date", "until" => nil}
+      }
+
+      assert {:ok, false} = Bandera.Gate.enabled?(gate)
+    end
+
+    test "an open-ended window (both bounds nil) is always active" do
+      gate = Bandera.Gate.new(:schedule, {nil, nil})
+      assert {:ok, true} = Bandera.Gate.enabled?(gate)
+    end
+
+    test "a from-only window is active once started" do
+      past = DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601()
+      assert {:ok, true} = Bandera.Gate.enabled?(Bandera.Gate.new(:schedule, {past, nil}))
+    end
+
+    test "an until-only window is active before it closes and inactive after" do
+      future = DateTime.utc_now() |> DateTime.add(60, :second) |> DateTime.to_iso8601()
+      past = DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601()
+
+      assert {:ok, true} = Bandera.Gate.enabled?(Bandera.Gate.new(:schedule, {nil, future}))
+      assert {:ok, false} = Bandera.Gate.enabled?(Bandera.Gate.new(:schedule, {nil, past}))
+    end
+  end
+
+  describe "variant gates" do
+    test "new/2 builds a variant gate holding the weights map in :value" do
+      gate = Bandera.Gate.new(:variant, %{"blue" => 1, "green" => 1})
+
+      assert %Bandera.Gate{
+               type: :variant,
+               for: nil,
+               enabled: true,
+               value: %{"blue" => 1, "green" => 1}
+             } = gate
+    end
+
+    test "variant?/1 and id/1" do
+      gate = Bandera.Gate.new(:variant, %{"a" => 1})
+      assert Bandera.Gate.variant?(gate)
+      refute Bandera.Gate.variant?(Bandera.Gate.new(:boolean, true))
+      assert Bandera.Gate.id(gate) == "variant"
+    end
+
+    test "new/2 rejects an empty weights map" do
+      assert_raise Bandera.Gate.InvalidTargetError, fn -> Bandera.Gate.new(:variant, %{}) end
+    end
+
+    test "new/2 rejects an all-zero weights map" do
+      assert_raise Bandera.Gate.InvalidTargetError, fn ->
+        Bandera.Gate.new(:variant, %{"a" => 0, "b" => 0})
+      end
+    end
+
+    test "new/2 rejects negative weights" do
+      assert_raise Bandera.Gate.InvalidTargetError, fn ->
+        Bandera.Gate.new(:variant, %{"a" => -1, "b" => 2})
+      end
+    end
+
+    test "new/2 rejects non-numeric weights" do
+      assert_raise Bandera.Gate.InvalidTargetError, fn ->
+        Bandera.Gate.new(:variant, %{"a" => "lots", "b" => 1})
+      end
+    end
+  end
 end

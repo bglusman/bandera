@@ -69,4 +69,82 @@ defmodule Bandera.FlagTest do
     results = Enum.map(1..50, fn _ -> Flag.enabled?(flag, for: actor) end)
     assert Enum.uniq(results) == [expected]
   end
+
+  describe "schedule gates" do
+    test "an active schedule gate enables the flag" do
+      past = DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601()
+      future = DateTime.utc_now() |> DateTime.add(60, :second) |> DateTime.to_iso8601()
+      flag = Bandera.Flag.new(:f, [Bandera.Gate.new(:schedule, {past, future})])
+      assert Bandera.Flag.enabled?(flag)
+    end
+
+    test "an active schedule gate enables a flag even when evaluated with a for: actor" do
+      past = DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601()
+      future = DateTime.utc_now() |> DateTime.add(60, :second) |> DateTime.to_iso8601()
+      flag = Bandera.Flag.new(:f, [Bandera.Gate.new(:schedule, {past, future})])
+      assert Bandera.Flag.enabled?(flag, for: %{id: 1})
+    end
+
+    test "a future-only schedule gate disables the flag" do
+      future = DateTime.utc_now() |> DateTime.add(3600, :second) |> DateTime.to_iso8601()
+      flag = Bandera.Flag.new(:f, [Bandera.Gate.new(:schedule, {future, nil})])
+      refute Bandera.Flag.enabled?(flag)
+    end
+  end
+
+  describe "rule gates with context" do
+    test "matches when all constraints satisfy the context" do
+      gate = Bandera.Gate.new(:rule, [Bandera.Constraint.new("plan", :eq, "premium")], true)
+      flag = Bandera.Flag.new(:f, [gate])
+      assert Bandera.Flag.enabled?(flag, context: %{"plan" => "premium"})
+      refute Bandera.Flag.enabled?(flag, context: %{"plan" => "free"})
+    end
+
+    test "rule + boolean fallback: rule miss falls through to boolean" do
+      flag =
+        Bandera.Flag.new(:f, [
+          Bandera.Gate.new(:rule, [Bandera.Constraint.new("plan", :eq, "premium")], true),
+          Bandera.Gate.new(:boolean, false)
+        ])
+
+      refute Bandera.Flag.enabled?(flag, context: %{"plan" => "free"})
+    end
+
+    test "existing for: behaviour is unchanged" do
+      flag = Bandera.Flag.new(:f, [Bandera.Gate.new(:actor, %{id: 1}, true)])
+      assert Bandera.Flag.enabled?(flag, for: %{id: 1})
+      refute Bandera.Flag.enabled?(flag, for: %{id: 2})
+    end
+
+    test "a rule with no constraints never matches (does not grant to everyone)" do
+      flag = Bandera.Flag.new(:f, [Bandera.Gate.new(:rule, [], true)])
+      refute Bandera.Flag.enabled?(flag, context: %{"anything" => "here"})
+      refute Bandera.Flag.enabled?(flag, for: %{id: 1})
+    end
+  end
+
+  describe "variant/2" do
+    test "returns the :default when the flag has no variant gate" do
+      flag = Bandera.Flag.new(:f, [Bandera.Gate.new(:boolean, true)])
+      assert Bandera.Flag.variant(flag, for: %{id: 1}, default: "control") == "control"
+    end
+
+    test "returns the :default when no actor is given (no stable bucket)" do
+      flag = Bandera.Flag.new(:f, [Bandera.Gate.new(:variant, %{"a" => 1, "b" => 1})])
+      assert Bandera.Flag.variant(flag, default: "control") == "control"
+    end
+
+    test "picks a variant by stable per-actor bucketing" do
+      flag = Bandera.Flag.new(:f, [Bandera.Gate.new(:variant, %{"a" => 1, "b" => 1})])
+      chosen = Bandera.Flag.variant(flag, for: %{id: 1})
+      assert chosen in ["a", "b"]
+      # sticky: same actor + flag always lands in the same variant
+      assert Bandera.Flag.variant(flag, for: %{id: 1}) == chosen
+    end
+
+    test "a 100/0 split always picks the only weighted variant" do
+      flag = Bandera.Flag.new(:f, [Bandera.Gate.new(:variant, %{"only" => 1, "never" => 0})])
+      assert Bandera.Flag.variant(flag, for: %{id: 99}) == "only"
+    end
+  end
 end

@@ -28,7 +28,8 @@ defmodule Bandera.MixProject do
           # `extra_applications`) but it is not part of the resolved dep tree,
           # so the `:project_plus_deps` selector omits it. Add it explicitly so
           # the PLT includes its specs and `:crypto.hash/2` resolves cleanly.
-          apps: [:project_plus_deps, :crypto],
+          # `:mix` is added for the `mix bandera.flags` task (Mix.Task/Mix.shell).
+          apps: [:project_plus_deps, :crypto, :mix],
           warning_apps: :project
         ]
       ]
@@ -71,6 +72,7 @@ defmodule Bandera.MixProject do
   defp extras do
     [
       "README.md",
+      "guides/features_guide.md": [title: "Feature Guide"],
       "guides/phoenix_liveview_guide.md": [title: "Using Bandera with Phoenix LiveView"],
       "guides/dashboard_guide.md": [title: "Flag Dashboard (LiveView UI)"],
       "guides/migration_guide.md": [title: "Migration from fun_with_flags"],
@@ -140,6 +142,7 @@ defmodule Bandera.MixProject do
   defp deps do
     [
       {:telemetry, "~> 1.0"},
+      {:jason, "~> 1.4"},
       # Backs Bandera.Store.ProcessScoped (the test layer). optional: available in
       # Bandera's own builds; not forced on consumers. Apps using the test layer add
       # {:nimble_ownership, "~> 1.0", only: :test} to their own deps.

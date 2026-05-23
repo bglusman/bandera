@@ -62,4 +62,68 @@ defmodule Bandera.Store.Persistent.Redis.SerializerTest do
       assert %Flag{name: :my_flag, gates: []} = Serializer.deserialize_flag("my_flag", [])
     end
   end
+
+  test "round-trips a segment gate" do
+    gate = Gate.new(:segment, :premium_us, true)
+    {field, value} = Serializer.serialize(gate)
+    assert field == "segment/premium_us"
+    assert %Flag{gates: [^gate]} = Serializer.deserialize_flag(:f, [field, value])
+  end
+
+  test "round-trips a rule gate via JSON" do
+    gate = Gate.new(:rule, [Bandera.Constraint.new("plan", :eq, "premium")], true)
+    {field, value} = Serializer.serialize(gate)
+    assert field == "rule"
+
+    assert Jason.decode!(value) == [
+             %{"attribute" => "plan", "operator" => "eq", "values" => ["premium"]}
+           ]
+
+    assert %Flag{gates: [^gate]} = Serializer.deserialize_flag(:f, [field, value])
+  end
+
+  test "round-trips a prerequisite gate" do
+    gate = Gate.new(:prerequisite, :parent, true)
+    {field, value} = Serializer.serialize(gate)
+    assert field == "prerequisite/parent"
+    assert %Flag{gates: [^gate]} = Serializer.deserialize_flag(:f, [field, value])
+  end
+
+  test "round-trips a schedule gate" do
+    gate = Gate.new(:schedule, {"2026-01-01T00:00:00Z", nil})
+    {field, value} = Serializer.serialize(gate)
+    assert field == "schedule"
+    assert %Flag{gates: [^gate]} = Serializer.deserialize_flag(:f, [field, value])
+  end
+
+  test "round-trips a variant gate via JSON" do
+    gate = Bandera.Gate.new(:variant, %{"a" => 1, "b" => 2})
+    {field, value} = Serializer.serialize(gate)
+    assert field == "variant"
+    assert Jason.decode!(value) == %{"a" => 1, "b" => 2}
+
+    assert %Bandera.Flag{gates: [^gate]} = Serializer.deserialize_flag(:f, [field, value])
+  end
+
+  describe "fail-soft deserialization" do
+    import ExUnit.CaptureLog
+
+    test "a corrupt field is dropped and the rest of the flag survives" do
+      {flag, _log} =
+        with_log(fn ->
+          Serializer.deserialize_flag(:f, ["boolean", "true", "variant", "{not json"])
+        end)
+
+      assert %Flag{gates: [%Gate{type: :boolean, enabled: true}]} = flag
+    end
+
+    test "an unknown field is dropped, not raised" do
+      {flag, _log} =
+        with_log(fn ->
+          Serializer.deserialize_flag(:f, ["boolean", "true", "from_the_future", "x"])
+        end)
+
+      assert %Flag{gates: [%Gate{type: :boolean}]} = flag
+    end
+  end
 end

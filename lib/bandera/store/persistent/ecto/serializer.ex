@@ -15,6 +15,7 @@ defmodule Bandera.Store.Persistent.Ecto.Serializer do
 
   alias Bandera.Flag
   alias Bandera.Gate
+  require Logger
 
   @none "_bandera_none"
 
@@ -22,7 +23,8 @@ defmodule Bandera.Store.Persistent.Ecto.Serializer do
           flag_name: String.t(),
           gate_type: String.t(),
           target: String.t(),
-          enabled: boolean
+          enabled: boolean,
+          value: String.t() | nil
         }
 
   @doc """
@@ -50,7 +52,8 @@ defmodule Bandera.Store.Persistent.Ecto.Serializer do
       flag_name: to_string(flag_name),
       gate_type: gate_type,
       target: target,
-      enabled: gate.enabled
+      enabled: gate.enabled,
+      value: encode_value(gate)
     }
   end
 
@@ -96,9 +99,20 @@ defmodule Bandera.Store.Persistent.Ecto.Serializer do
     gates =
       rows
       |> Enum.sort_by(&{&1.gate_type, &1.target})
-      |> Enum.map(&to_gate/1)
+      |> Enum.flat_map(&safe_to_gate/1)
 
     Flag.new(to_atom(flag_name), gates)
+  end
+
+  # A single corrupt or foreign row (bad JSON, unknown gate_type, malformed ratio)
+  # must not crash the whole flag read — or, via all_flags/0, the entire listing and
+  # dashboard. Drop the bad gate with a warning and keep the rest.
+  defp safe_to_gate(row) do
+    [to_gate(row)]
+  rescue
+    error ->
+      Logger.warning("[Bandera] skipping unreadable gate row #{inspect(row)}: #{inspect(error)}")
+      []
   end
 
   defp type_and_target(%Gate{type: :percentage_of_time, for: ratio}),
@@ -108,9 +122,46 @@ defmodule Bandera.Store.Persistent.Ecto.Serializer do
     do: {"percentage", "actors/#{ratio}"}
 
   defp type_and_target(%Gate{type: :boolean}), do: {"boolean", @none}
+  defp type_and_target(%Gate{type: :variant}), do: {"variant", @none}
+  defp type_and_target(%Gate{type: :rule}), do: {"rule", @none}
+  defp type_and_target(%Gate{type: :segment, for: name}), do: {"segment", name}
+
+  defp type_and_target(%Gate{type: :prerequisite, for: parent}),
+    do: {"prerequisite", to_string(parent)}
+
+  defp type_and_target(%Gate{type: :schedule}), do: {"schedule", @none}
 
   defp type_and_target(%Gate{type: type, for: target}),
     do: {to_string(type), serialize_target(target)}
+
+  defp encode_value(%Gate{type: :variant, value: weights}), do: Jason.encode!(weights)
+
+  defp encode_value(%Gate{type: :rule, value: constraints}),
+    do: Jason.encode!(Enum.map(constraints, &Bandera.Constraint.to_map/1))
+
+  defp encode_value(%Gate{type: :schedule, value: window}), do: Jason.encode!(window)
+
+  defp encode_value(%Gate{}), do: nil
+
+  defp to_gate(%{gate_type: "variant", value: value}),
+    do: %Gate{type: :variant, for: nil, enabled: true, value: Jason.decode!(value)}
+
+  defp to_gate(%{gate_type: "rule", value: value, enabled: enabled}),
+    do: %Gate{
+      type: :rule,
+      for: nil,
+      enabled: enabled,
+      value: value |> Jason.decode!() |> Enum.map(&Bandera.Constraint.from_map/1)
+    }
+
+  defp to_gate(%{gate_type: "prerequisite", target: parent, enabled: required}),
+    do: %Gate{type: :prerequisite, for: existing_atom(parent), enabled: required}
+
+  defp to_gate(%{gate_type: "schedule", value: value}),
+    do: %Gate{type: :schedule, for: nil, enabled: true, value: Jason.decode!(value)}
+
+  defp to_gate(%{gate_type: "segment", target: name, enabled: enabled}),
+    do: %Gate{type: :segment, for: name, enabled: enabled}
 
   defp to_gate(%{gate_type: "boolean", enabled: enabled}),
     do: %Gate{type: :boolean, for: nil, enabled: enabled}
@@ -129,4 +180,13 @@ defmodule Bandera.Store.Persistent.Ecto.Serializer do
 
   defp to_atom(name) when is_atom(name), do: name
   defp to_atom(name) when is_binary(name), do: String.to_atom(name)
+
+  # Resolve a stored parent-flag name without creating new atoms (an atom-exhaustion
+  # guard for corrupt/foreign data). If the atom does not exist, keep the string —
+  # prerequisite resolution treats a non-atom parent as unresolved and fails closed.
+  defp existing_atom(name) do
+    String.to_existing_atom(name)
+  rescue
+    ArgumentError -> name
+  end
 end

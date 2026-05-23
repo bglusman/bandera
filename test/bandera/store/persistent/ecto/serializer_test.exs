@@ -63,9 +63,95 @@ defmodule Bandera.Store.Persistent.Ecto.SerializerTest do
     end
   end
 
+  describe "rule and segment gates (plan 3)" do
+    test "round-trips a rule gate via JSON value" do
+      gate = Gate.new(:rule, [Bandera.Constraint.new("plan", :eq, "premium")], true)
+      row = Serializer.to_row(:f, gate)
+      assert row.gate_type == "rule"
+      assert %Flag{gates: [^gate]} = Serializer.deserialize_flag(:f, [row])
+    end
+
+    test "round-trips a segment gate" do
+      gate = Gate.new(:segment, :premium_us, true)
+      row = Serializer.to_row(:f, gate)
+      assert row.gate_type == "segment"
+      assert row.target == "premium_us"
+      assert %Flag{gates: [^gate]} = Serializer.deserialize_flag(:f, [row])
+    end
+  end
+
+  describe "prerequisite gates (plan 4)" do
+    test "round-trips a prerequisite gate" do
+      gate = Gate.new(:prerequisite, :parent, true)
+
+      assert %Flag{gates: [^gate]} =
+               Serializer.deserialize_flag(:f, [Serializer.to_row(:f, gate)])
+    end
+  end
+
+  describe "schedule gates (plan 4)" do
+    test "round-trips a schedule gate" do
+      gate = Gate.new(:schedule, {"2026-01-01T00:00:00Z", nil})
+
+      assert %Flag{gates: [^gate]} =
+               Serializer.deserialize_flag(:f, [Serializer.to_row(:f, gate)])
+    end
+  end
+
   test "serialize_target/1 maps nil to the sentinel" do
     assert Serializer.serialize_target(nil) == "_bandera_none"
     assert Serializer.serialize_target("x") == "x"
     assert Serializer.serialize_target(:y) == "y"
+  end
+
+  describe "variant gates (schema v2 value)" do
+    test "to_row encodes weights as JSON in :value" do
+      row = Serializer.to_row(:f, Gate.new(:variant, %{"a" => 1, "b" => 2}))
+      assert row.gate_type == "variant"
+      assert row.target == "_bandera_none"
+      assert Jason.decode!(row.value) == %{"a" => 1, "b" => 2}
+    end
+
+    test "round-trips a variant gate" do
+      gate = Gate.new(:variant, %{"a" => 1, "b" => 2})
+      row = Serializer.to_row(:f, gate)
+      assert %Flag{gates: [^gate]} = Serializer.deserialize_flag(:f, [row])
+    end
+
+    test "non-variant gates carry value: nil" do
+      assert %{value: nil} = Serializer.to_row(:f, Gate.new(:boolean, true))
+    end
+  end
+
+  describe "fail-soft deserialization" do
+    import ExUnit.CaptureLog
+
+    test "a corrupt row is dropped and the rest of the flag survives" do
+      good = Serializer.to_row(:f, Gate.new(:boolean, true))
+
+      corrupt = %{
+        gate_type: "variant",
+        target: "_bandera_none",
+        enabled: true,
+        value: "{not json"
+      }
+
+      {flag, _log} = with_log(fn -> Serializer.deserialize_flag(:f, [good, corrupt]) end)
+      assert %Flag{gates: [%Gate{type: :boolean, enabled: true}]} = flag
+    end
+
+    test "an unknown gate_type is dropped, not raised" do
+      good = Serializer.to_row(:f, Gate.new(:boolean, true))
+
+      unknown = %{
+        gate_type: "from_the_future",
+        target: "_bandera_none",
+        enabled: true,
+        value: nil
+      }
+
+      {flag, _log} = with_log(fn -> Serializer.deserialize_flag(:f, [good, unknown]) end)
+      assert %Flag{gates: [%Gate{type: :boolean}]} = flag
+    end
   end
 end
