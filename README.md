@@ -35,7 +35,7 @@ writing a row, not shipping code. See
 time window (UTC) so launches and sunsets happen on schedule, instead of someone
 toggling a switch at midnight. See [Scheduling](#scheduling).
 
-It also gets the fundamentals right:
+And two foundations it's built to get right — the ones most flag systems get wrong:
 
 **Runtime config, no recompilation.** Bandera reads every setting at runtime
 through `Application.get_env/3` and never touches `Application.compile_env/3`.
