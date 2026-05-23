@@ -165,6 +165,9 @@ defmodule Bandera do
   defp do_enable(flag_name, for_percentage_of: {:actors, ratio}) when is_atom(flag_name),
     do: put_constant(flag_name, Gate.new(:percentage_of_actors, ratio), true)
 
+  defp do_enable(_flag_name, when: []),
+    do: raise(ArgumentError, "enable/2 :when requires at least one constraint")
+
   defp do_enable(flag_name, when: constraints) when is_atom(flag_name) and is_list(constraints) do
     gate = Gate.new(:rule, Enum.map(constraints, &to_constraint/1), true)
     put_constant(flag_name, gate, true)
@@ -373,6 +376,9 @@ defmodule Bandera do
       iex> {:ok, _flag} = Bandera.get_flag(:"bandera_segment:premium")
   """
   @spec put_segment(atom, [tuple | Bandera.Constraint.t()]) :: {:ok, Flag.t()} | {:error, term}
+  def put_segment(_name, []),
+    do: raise(ArgumentError, "put_segment/2 requires at least one constraint")
+
   def put_segment(name, constraints) when is_atom(name) and is_list(constraints) do
     gate = Gate.new(:rule, Enum.map(constraints, &to_constraint/1), true)
     Store.active().put(segment_key(name), gate)

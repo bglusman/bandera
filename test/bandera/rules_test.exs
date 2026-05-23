@@ -28,4 +28,8 @@ defmodule Bandera.RulesTest do
     assert Bandera.enabled?(:billing, context: %{"plan" => "premium", "country" => "US"})
     refute Bandera.enabled?(:billing, context: %{"plan" => "free", "country" => "US"})
   end
+
+  test "enable(when: []) is rejected (an empty rule would match everyone)" do
+    assert_raise ArgumentError, fn -> Bandera.enable(:everyone, when: []) end
+  end
 end

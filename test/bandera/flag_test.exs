@@ -115,6 +115,12 @@ defmodule Bandera.FlagTest do
       assert Bandera.Flag.enabled?(flag, for: %{id: 1})
       refute Bandera.Flag.enabled?(flag, for: %{id: 2})
     end
+
+    test "a rule with no constraints never matches (does not grant to everyone)" do
+      flag = Bandera.Flag.new(:f, [Bandera.Gate.new(:rule, [], true)])
+      refute Bandera.Flag.enabled?(flag, context: %{"anything" => "here"})
+      refute Bandera.Flag.enabled?(flag, for: %{id: 1})
+    end
   end
 
   describe "variant/2" do

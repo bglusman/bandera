@@ -31,6 +31,10 @@ defmodule Bandera.SegmentsTest do
     assert {:ok, %Bandera.Flag{}} = Bandera.get_flag(:"bandera_segment:premium_us")
   end
 
+  test "put_segment with no constraints is rejected" do
+    assert_raise ArgumentError, fn -> Bandera.put_segment(:nobody, []) end
+  end
+
   test "a flag referencing a segment is enabled only for matching contexts" do
     {:ok, _} =
       Bandera.put_segment(:premium_us, [{"plan", :eq, "premium"}, {"country", :eq, "US"}])

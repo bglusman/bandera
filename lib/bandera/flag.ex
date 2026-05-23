@@ -91,7 +91,10 @@ defmodule Bandera.Flag do
     gates
     |> Enum.filter(&Gate.rule?/1)
     |> Enum.any?(fn %Gate{value: constraints, enabled: enabled} ->
-      enabled and Enum.all?(constraints, &Bandera.Constraint.match?(&1, context))
+      # A rule with no constraints must not match (Enum.all?([]) is vacuously true),
+      # so it can never grant to everyone.
+      enabled and constraints != [] and
+        Enum.all?(constraints, &Bandera.Constraint.match?(&1, context))
     end)
   end
 
