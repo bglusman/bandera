@@ -7,7 +7,13 @@ defmodule Bandera.Audit do
       Bandera.Audit.attach(:my_audit, fn event ->
         MyApp.AuditLog.insert!(event)
       end)
+
+  An exception raised by your callback is caught and logged rather than propagated,
+  so a transient failure can't make `:telemetry` silently detach the handler and
+  drop all later audit events.
   """
+
+  require Logger
 
   defmodule Event do
     @moduledoc "A single flag-change audit record."
@@ -56,8 +62,21 @@ defmodule Bandera.Audit do
       @stop_events,
       fn event_name, _measurements, metadata, cb ->
         case from_telemetry(event_name, metadata) do
-          :ignore -> :ok
-          event -> cb.(event)
+          :ignore ->
+            :ok
+
+          event ->
+            try do
+              cb.(event)
+            rescue
+              error ->
+                Logger.error(
+                  "[Bandera.Audit] handler #{inspect(handler_id)} raised: " <>
+                    Exception.message(error)
+                )
+            end
+
+            :ok
         end
       end,
       callback

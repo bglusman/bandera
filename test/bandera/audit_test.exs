@@ -54,4 +54,31 @@ defmodule Bandera.AuditTest do
     {:ok, _} = Bandera.enable(:other)
     refute_receive {:audited, _}
   end
+
+  test "a raising callback is contained and the handler stays attached" do
+    import ExUnit.CaptureLog
+
+    test_pid = self()
+
+    :ok =
+      Audit.attach(:resilient, fn event ->
+        send(test_pid, {:seen, event.flag_name})
+        raise "boom"
+      end)
+
+    on_exit(fn -> Audit.detach(:resilient) end)
+
+    capture_log(fn ->
+      {:ok, _} = Bandera.enable(:first)
+      assert_receive {:seen, :first}
+
+      # If a raising handler were auto-detached by telemetry, this second event
+      # would never reach it.
+      {:ok, _} = Bandera.enable(:second)
+      assert_receive {:seen, :second}
+    end)
+
+    handlers = :telemetry.list_handlers([:bandera, :enable, :stop])
+    assert Enum.any?(handlers, &(&1.id == :resilient))
+  end
 end

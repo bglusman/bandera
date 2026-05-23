@@ -32,8 +32,12 @@ defmodule Bandera.Usage do
   @doc false
   @spec handle(list, map, map, term) :: :ok
   def handle([:bandera, _event], _measurements, %{flag_name: flag_name}, _config) do
+    # Never raise out of the telemetry handler: that would make :telemetry detach the
+    # tracker, silently stopping usage recording (e.g. if the table isn't running).
     :ets.insert(@table, {flag_name, DateTime.utc_now()})
     :ok
+  rescue
+    _error -> :ok
   end
 
   @spec last_evaluated(atom) :: DateTime.t() | nil
