@@ -410,6 +410,46 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     assert html =~ "Segment name can"
   end
 
+  test "add and remove a prerequisite gate", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, true} = Bandera.enable(:billing_parent)
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    html =
+      render_submit(live, "add_prerequisite", %{
+        "flag" => "billing_invoices",
+        "parent" => "billing_parent",
+        "required" => "on"
+      })
+
+    assert html =~ "billing_parent (must be on)"
+    assert html =~ "1 prerequisite"
+
+    html =
+      render_click(live, "remove_prerequisite", %{
+        "flag" => "billing_invoices",
+        "parent" => "billing_parent"
+      })
+
+    refute html =~ "must be on"
+  end
+
+  test "add_prerequisite with no parent shows a validation error", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    html =
+      render_submit(live, "add_prerequisite", %{
+        "flag" => "billing_invoices",
+        "parent" => "",
+        "required" => "on"
+      })
+
+    assert html =~ "Pick a prerequisite flag"
+  end
+
   test "refreshes when another node broadcasts a flag change", %{conn: conn} do
     Application.put_env(:bandera, :cache_bust_notifications,
       enabled: true,

@@ -282,6 +282,29 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
     end
 
+    def handle_event(
+          "add_prerequisite",
+          %{"flag" => name, "parent" => parent, "required" => required},
+          socket
+        ) do
+      case String.trim(parent) do
+        "" ->
+          {:noreply, assign(socket, :flash_error, "Pick a prerequisite flag.")}
+
+        parent ->
+          Bandera.enable(String.to_existing_atom(name),
+            requires: {String.to_existing_atom(parent), required == "on"}
+          )
+
+          {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
+      end
+    end
+
+    def handle_event("remove_prerequisite", %{"flag" => name, "parent" => parent}, socket) do
+      Bandera.clear(String.to_existing_atom(name), requires: String.to_existing_atom(parent))
+      {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
+    end
+
     def handle_event("clear_flag", %{"flag" => name}, socket) do
       flag_name = String.to_existing_atom(name)
       Bandera.clear(flag_name)
@@ -390,6 +413,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       {render_variants(assigns, @flag)}
       {render_rule(assigns, @flag)}
       {render_segments(assigns, @flag)}
+      {render_prerequisites(assigns, @flag)}
 
       <button
         type="button"
@@ -492,6 +516,43 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       """
     end
 
+    defp render_prerequisites(assigns, flag) do
+      assigns =
+        assigns
+        |> Phoenix.Component.assign(:flag, flag)
+        |> Phoenix.Component.assign(:candidates, prerequisite_candidates(assigns.all_flags, flag))
+
+      ~H"""
+      <fieldset class={Theme.class(@theme, :fieldset)}>
+        <legend class={Theme.class(@theme, :legend)}>Prerequisites</legend>
+        <ul class={Theme.class(@theme, :gate_list)}>
+          <li :for={g <- prerequisite_gates(@flag)} class={Theme.class(@theme, :gate_item)}>
+            <code>{g.for} (must be {if g.enabled, do: "on", else: "off"})</code>
+            <button
+              type="button"
+              class={Theme.class(@theme, :danger_button)}
+              phx-click="remove_prerequisite"
+              phx-value-flag={@flag.name}
+              phx-value-parent={g.for}
+            >remove</button>
+          </li>
+        </ul>
+        <form phx-submit="add_prerequisite">
+          <input type="hidden" name="flag" value={@flag.name} />
+          <select name="parent" class={Theme.class(@theme, :select)}>
+            <option value="">flag…</option>
+            <option :for={f <- @candidates} value={f}>{f}</option>
+          </select>
+          <select name="required" class={Theme.class(@theme, :select)}>
+            <option value="on">on</option>
+            <option value="off">off</option>
+          </select>
+          <button class={Theme.class(@theme, :primary_button)}>add prerequisite</button>
+        </form>
+      </fieldset>
+      """
+    end
+
     # ---- assigns helpers ----
 
     defp load_flags(socket) do
@@ -540,6 +601,11 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     defp segment_targets(flag), do: for(g <- flag.gates, Bandera.Gate.segment?(g), do: g.for)
+
+    defp prerequisite_gates(flag), do: for(g <- flag.gates, Bandera.Gate.prerequisite?(g), do: g)
+
+    defp prerequisite_candidates(all_flags, flag),
+      do: for(f <- all_flags, f.name != flag.name, do: f.name)
 
     defp current_flag(socket, name),
       do: Enum.find(socket.assigns.all_flags, &(to_string(&1.name) == name))
