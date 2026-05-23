@@ -67,6 +67,7 @@ defmodule Bandera.MixProject do
   defp extras do
     [
       "README.md",
+      "guides/features_guide.md": [title: "Feature Guide"],
       "guides/phoenix_liveview_guide.md": [title: "Using Bandera with Phoenix LiveView"],
       "guides/dashboard_guide.md": [title: "Flag Dashboard (LiveView UI)"],
       "guides/migration_guide.md": [title: "Migration from fun_with_flags"],
