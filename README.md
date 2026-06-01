@@ -14,6 +14,15 @@ flags, attribute-based targeting rules with reusable segments, flag prerequisite
 and scheduled activation windows — all stored as data, backed by in-memory, Ecto, or
 Redis storage, with an ETS cache and cross-node cache-busting notifications.
 
+## The Name
+
+*Bandera* means **flag** in Spanish, Italian (*bandiera*), Portuguese (*bandeira*),
+Catalan, and Galician — all tracing back to the same root.
+The word entered Romance through [Gothic *bandwō*](https://en.wiktionary.org/wiki/Reconstruction:Proto-Germanic/bandw%C5%8D)
+("sign, signal") into [Medieval Latin *banderia*](https://en.wiktionary.org/wiki/banderia#Latin),
+then out to Spanish, Italian, and their neighbours — the Proto-Germanic ancestor that also gave English *band* and *banner*.
+You can read more on [Wiktionary's bandera entry](https://en.wiktionary.org/wiki/bandera#Spanish).
+
 ## Why Bandera?
 
 Most Elixir flag libraries cover boolean, actor, group, and percentage rollouts.
