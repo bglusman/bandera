@@ -75,4 +75,97 @@ defmodule Bandera.Ecto.MigrationsTest do
 
     assert "value" in column_names(table)
   end
+
+  defmodule FixFunWithFlagsMigration do
+    use Ecto.Migration
+
+    @spec up() :: :ok
+    def up, do: Bandera.Ecto.Migrations.fix_fun_with_flags_boolean_gates()
+  end
+
+  describe "fix_fun_with_flags_boolean_gates/0" do
+    setup do
+      Bandera.TestRepo.query!("DELETE FROM schema_migrations WHERE version = 20260601000001")
+
+      on_exit(fn ->
+        Bandera.TestRepo.query!("DELETE FROM schema_migrations WHERE version = 20260601000001")
+      end)
+    end
+
+    test "renames a lone legacy boolean row to _bandera_none" do
+      Bandera.TestRepo.query!("""
+      INSERT INTO bandera_flags (flag_name, gate_type, target, enabled, value)
+      VALUES ('my_flag', 'boolean', 'boolean', true, NULL)
+      """)
+
+      run_fix_migration()
+
+      %{rows: rows} =
+        Bandera.TestRepo.query!(
+          "SELECT target, enabled FROM bandera_flags WHERE flag_name='my_flag' AND gate_type='boolean'"
+        )
+
+      assert rows == [["_bandera_none", 1]]
+    end
+
+    test "deletes legacy row when a Bandera row already exists, keeping Bandera row's enabled value" do
+      Bandera.TestRepo.query!("""
+      INSERT INTO bandera_flags (flag_name, gate_type, target, enabled, value)
+      VALUES ('my_flag', 'boolean', 'boolean', true, NULL),
+             ('my_flag', 'boolean', '_bandera_none', false, NULL)
+      """)
+
+      run_fix_migration()
+
+      %{rows: rows} =
+        Bandera.TestRepo.query!(
+          "SELECT target, enabled FROM bandera_flags WHERE flag_name='my_flag' AND gate_type='boolean'"
+        )
+
+      assert rows == [["_bandera_none", 0]]
+    end
+
+    test "does not touch actor or group rows" do
+      Bandera.TestRepo.query!("""
+      INSERT INTO bandera_flags (flag_name, gate_type, target, enabled, value)
+      VALUES ('my_flag', 'boolean', 'boolean', true, NULL),
+             ('my_flag', 'actor', 'user:1', true, NULL)
+      """)
+
+      run_fix_migration()
+
+      %{rows: rows} =
+        Bandera.TestRepo.query!(
+          "SELECT gate_type, target FROM bandera_flags WHERE flag_name='my_flag' ORDER BY gate_type"
+        )
+
+      assert rows == [["actor", "user:1"], ["boolean", "_bandera_none"]]
+    end
+
+    test "is a no-op when all boolean rows already use _bandera_none" do
+      Bandera.TestRepo.query!("""
+      INSERT INTO bandera_flags (flag_name, gate_type, target, enabled, value)
+      VALUES ('my_flag', 'boolean', '_bandera_none', true, NULL)
+      """)
+
+      run_fix_migration()
+
+      %{rows: rows} =
+        Bandera.TestRepo.query!(
+          "SELECT target, enabled FROM bandera_flags WHERE flag_name='my_flag' AND gate_type='boolean'"
+        )
+
+      assert rows == [["_bandera_none", 1]]
+    end
+
+    defp run_fix_migration do
+      Ecto.Migrator.run(
+        Bandera.TestRepo,
+        [{20_260_601_000_001, FixFunWithFlagsMigration}],
+        :up,
+        all: true,
+        log: false
+      )
+    end
+  end
 end

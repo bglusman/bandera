@@ -158,6 +158,21 @@ config :bandera,
   ]
 ```
 
+> **⚠ Boolean gate compatibility note.** FunWithFlags stored boolean gates with
+> a different internal sentinel than Bandera uses. If any flags had their boolean
+> state set while FunWithFlags was active, your table may have duplicate boolean
+> gate rows that cause the toggle to appear stuck. Run the one-time cleanup
+> migration after switching:
+>
+> ```
+> mix bandera.gen.fix_fun_with_flags_migration
+> mix ecto.migrate
+> ```
+>
+> This generates and runs a migration that normalises any legacy rows. It is safe
+> to run on a table that has already been fully migrated — it finds nothing to
+> change.
+
 **Option B: create a fresh Bandera table** and copy your rows over. Generate
 the table from a migration:
 
