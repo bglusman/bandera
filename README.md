@@ -71,7 +71,7 @@ Add `bandera` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:bandera, "~> 0.3.0"}
+    {:bandera, "~> 0.4.0"}
   ]
 end
 ```

@@ -19,7 +19,7 @@ the LiveView pieces (step 2).
 # mix.exs
 def deps do
   [
-    {:bandera, "~> 0.1"},
+    {:bandera, "~> 0.4"},
     {:phoenix_live_view, "~> 1.0"}
   ]
 end

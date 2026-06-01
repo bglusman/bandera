@@ -11,7 +11,7 @@ This guide walks through the change end to end. Most apps only need steps 1-3.
 
 | fun_with_flags | Bandera |
 | --- | --- |
-| `{:fun_with_flags, "~> x.y"}` | `{:bandera, "~> 0.1.0"}` |
+| `{:fun_with_flags, "~> x.y"}` | `{:bandera, "~> 0.4.0"}` |
 | `FunWithFlags.enabled?/2`, `enable/2`, `disable/2`, `clear/2` | identical on `Bandera` |
 | `FunWithFlags.Actor` / `FunWithFlags.Group` | `Bandera.Actor` / `Bandera.Group` |
 | `config :fun_with_flags, :cache, ...` | `config :bandera, cache: [...]` |
@@ -29,7 +29,7 @@ In `mix.exs`, replace the dependency:
 {:fun_with_flags, "~> 1.0"},
 
 # after
-{:bandera, "~> 0.1.0"},
+{:bandera, "~> 0.4.0"},
 ```
 
 Keep whichever backend deps you already had (`ecto_sql`, `redix`,

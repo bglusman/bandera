@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-01
+
+### Added
+
+- `Bandera.Ecto.Migrations.fix_fun_with_flags_boolean_gates/0`: one-time cleanup
+  migration helper that normalises duplicate boolean gate rows left by a
+  FunWithFlags-to-Bandera migration. Safe to run on a database that has already
+  been fully migrated — it finds nothing to change.
+- `mix bandera.gen.fix_fun_with_flags_migration`: scaffolds the cleanup migration
+  file in one command, then you run `mix ecto.migrate`.
+
+### Fixed
+
+- Ecto store: boolean gate `put/2` now deletes any existing boolean row before
+  inserting, regardless of the stored `target` value. Previously, migrating from
+  FunWithFlags (which used `target = "boolean"`) left a stale row alongside
+  Bandera's `target = "_bandera_none"` row because the upsert conflict key is
+  `(flag_name, gate_type, target)`. The symptom was a dashboard toggle that
+  showed "on" while the summary showed "off", with the toggle appearing to do
+  nothing.
+
 ## [0.3.0] - 2026-05-23
 
 ### Added
@@ -106,7 +127,8 @@ Initial release.
   NimbleOwnership.
 - `:telemetry` events for reads, writes, and the persistence layer.
 
-[Unreleased]: https://github.com/ch4s3/bandera/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ch4s3/bandera/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ch4s3/bandera/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ch4s3/bandera/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ch4s3/bandera/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ch4s3/bandera/releases/tag/v0.1.0
