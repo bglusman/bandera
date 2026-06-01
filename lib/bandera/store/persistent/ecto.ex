@@ -74,6 +74,26 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
     end
 
     @impl Bandera.Store.Persistent
+    def put(flag_name, %Gate{type: :boolean} = gate) do
+      # Delete any existing boolean row first — regardless of the `target` value
+      # stored there. Without this, migrating from FunWithFlags (which used
+      # `target = "boolean"`) leaves a stale row alongside Bandera's
+      # `target = "_bandera_none"` row, because the upsert conflict target is
+      # `[:flag_name, :gate_type, :target]` and the two targets differ.
+      name = to_string(flag_name)
+      row = Serializer.to_row(flag_name, gate)
+
+      repo().delete_all(
+        from(r in {table(), Record},
+          where: r.flag_name == ^name and r.gate_type == "boolean"
+        )
+      )
+
+      repo().insert_all({table(), Record}, [row])
+      get(flag_name)
+    end
+
+    @impl Bandera.Store.Persistent
     def put(flag_name, %Gate{} = gate) do
       row = Serializer.to_row(flag_name, gate)
 
