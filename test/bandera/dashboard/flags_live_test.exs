@@ -541,6 +541,51 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     assert html =~ "billing_invoices"
   end
 
+  test "table view shows all flags with full names", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, true} = Bandera.enable(:beta)
+    {:ok, _live, html} = live(conn, "/flags?view=table")
+    assert html =~ "billing_invoices"
+    assert html =~ "beta"
+  end
+
+  test "table view shows 📅 for flags with schedules", %{conn: conn} do
+    {:ok, true} =
+      Bandera.enable(:billing_invoices,
+        schedule: {"2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z"}
+      )
+
+    {:ok, _live, html} = live(conn, "/flags?view=table")
+    assert html =~ "📅"
+  end
+
+  test "table view shows prerequisite count", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, true} = Bandera.enable(:billing_parent)
+    Bandera.enable(:billing_invoices, requires: {:billing_parent, true})
+
+    {:ok, _live, html} = live(conn, "/flags?view=table")
+    assert html =~ ">1<"
+  end
+
+  test "table row expand shows the gate editor", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, _html} = live(conn, "/flags?view=table")
+    refute render(live) =~ "add actor"
+
+    html = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+    assert html =~ "add actor"
+  end
+
+  test "table view sorts by name ascending by default", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, true} = Bandera.enable(:alpha_flag)
+    {:ok, _live, html} = live(conn, "/flags?view=table")
+    {alpha_pos, _} = :binary.match(html, "alpha_flag")
+    {billing_pos, _} = :binary.match(html, "billing_invoices")
+    assert alpha_pos < billing_pos
+  end
+
   test "refreshes when another node broadcasts a flag change", %{conn: conn} do
     Application.put_env(:bandera, :cache_bust_notifications,
       enabled: true,

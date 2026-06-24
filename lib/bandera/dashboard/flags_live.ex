@@ -205,17 +205,57 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         <table :if={@view == :table} class={Theme.class(@theme, :table)}>
           <thead>
             <tr>
-              <th class={Theme.class(@theme, :th)}>Flag</th>
-              <th class={Theme.class(@theme, :th)}>State</th>
-              <th class={Theme.class(@theme, :th)}>Last evaluated</th>
+              <th
+                class={"#{Theme.class(@theme, :th)} bandera-th--sortable"}
+                phx-click="sort"
+                phx-value-col="name"
+              >Flag {sort_arrow(:name, @sort, @sort_dir)}</th>
+              <th
+                class={"#{Theme.class(@theme, :th)} bandera-th--sortable"}
+                phx-click="sort"
+                phx-value-col="state"
+              >State {sort_arrow(:state, @sort, @sort_dir)}</th>
+              <th
+                class={"#{Theme.class(@theme, :th)} bandera-th--sortable"}
+                phx-click="sort"
+                phx-value-col="last_evaluated"
+              >Last evaluated {sort_arrow(:last_evaluated, @sort, @sort_dir)}</th>
+              <th class={Theme.class(@theme, :th)}>Schedule</th>
+              <th class={Theme.class(@theme, :th)}>Prerequisites</th>
+              <th class={Theme.class(@theme, :th)}></th>
             </tr>
           </thead>
           <tbody>
             <%= for {_group, members} <- @groups, {_display, flag} <- members do %>
               <tr class={Theme.class(@theme, :tr)}>
-                <td class={Theme.class(@theme, :td)}>{flag.name}</td>
-                <td class={Theme.class(@theme, :td)}><.state_summary flag={flag} theme={@theme} /></td>
-                <td class={Theme.class(@theme, :td)}>—</td>
+                <td class={Theme.class(@theme, :td)}>
+                  <span class={Theme.class(@theme, :name)}>{flag.name}</span>
+                </td>
+                <td class={Theme.class(@theme, :td)}>{flag_state(flag)}</td>
+                <td class={Theme.class(@theme, :td)}>{format_age(flag.name)}</td>
+                <td class={Theme.class(@theme, :td)}>{if has_schedule?(flag), do: "📅", else: "—"}</td>
+                <td class={Theme.class(@theme, :td)}>{prerequisite_count(flag)}</td>
+                <td class={Theme.class(@theme, :td)}>
+                  <button
+                    type="button"
+                    class={Theme.class(@theme, :icon_button)}
+                    phx-click="toggle_row"
+                    phx-value-flag={flag.name}
+                  >{if expanded?(@expanded, flag), do: "▴", else: "▾"}</button>
+                </td>
+              </tr>
+              <tr :if={expanded?(@expanded, flag)}>
+                <td class={Theme.class(@theme, :td)} colspan="6">
+                  <div class={Theme.class(@theme, :editor)}>
+                    <.flag_editor
+                      flag={flag}
+                      theme={@theme}
+                      actor_drafts={@actor_drafts}
+                      group_drafts={@group_drafts}
+                      all_flags={@all_flags}
+                    />
+                  </div>
+                </td>
               </tr>
             <% end %>
           </tbody>
@@ -451,6 +491,17 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
     end
 
+    def handle_event("sort", %{"col" => col}, socket) do
+      new_sort = parse_sort(col)
+
+      new_dir =
+        if new_sort == socket.assigns.sort,
+          do: if(socket.assigns.sort_dir == :asc, do: :desc, else: :asc),
+          else: :asc
+
+      {:noreply, socket |> assign(sort: new_sort, sort_dir: new_dir) |> recompute_groups()}
+    end
+
     def handle_event("clear_flag", %{"flag" => name}, socket) do
       flag_name = String.to_existing_atom(name)
       Bandera.clear(flag_name)
@@ -481,14 +532,66 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     defp recompute_groups(socket) do
-      separator = if socket.assigns.grouped, do: Bandera.Config.group_separator(), else: nil
+      separator =
+        if socket.assigns.grouped and socket.assigns.view == :cards,
+          do: Bandera.Config.group_separator(),
+          else: nil
 
       filtered =
         for flag <- socket.assigns.all_flags,
             matches?(flag, socket.assigns.search),
             do: flag
 
-      assign(socket, :groups, Bandera.Dashboard.Grouping.group(filtered, separator))
+      grouped = Bandera.Dashboard.Grouping.group(filtered, separator)
+
+      groups =
+        if socket.assigns.view == :table do
+          apply_table_sort(grouped, socket.assigns.sort, socket.assigns.sort_dir)
+        else
+          grouped
+        end
+
+      assign(socket, :groups, groups)
+    end
+
+    defp apply_table_sort(groups, sort, dir) do
+      Enum.map(groups, fn {group, members} ->
+        sorted =
+          case sort do
+            :name ->
+              Enum.sort_by(members, fn {_display, flag} -> to_string(flag.name) end, dir)
+
+            :state ->
+              Enum.sort_by(members, fn {_display, flag} -> flag_state_sort_key(flag) end, dir)
+
+            :last_evaluated ->
+              Enum.sort_by(
+                members,
+                fn {_display, flag} ->
+                  case Bandera.Dashboard.Stale.age_days(flag.name) do
+                    :never -> nil
+                    {:ok, days} -> days
+                  end
+                end,
+                fn
+                  nil, nil -> true
+                  nil, _ -> true
+                  _, nil -> false
+                  a, b -> if dir == :asc, do: a >= b, else: a <= b
+                end
+              )
+          end
+
+        {group, sorted}
+      end)
+    end
+
+    defp flag_state_sort_key(flag) do
+      case flag_state(flag) do
+        "on" -> 0
+        "partial" -> 1
+        "off" -> 2
+      end
     end
 
     defp matches?(_flag, ""), do: true
@@ -618,5 +721,32 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
     defp has_schedule?(flag), do: Enum.any?(flag.gates, &Bandera.Gate.schedule?/1)
     defp has_prerequisites?(flag), do: Enum.any?(flag.gates, &Bandera.Gate.prerequisite?/1)
+
+    defp flag_state(flag) do
+      cond do
+        boolean_on?(flag) -> "on"
+        Enum.any?(flag.gates, fn g -> g.type == :boolean and not g.enabled end) -> "off"
+        flag.gates == [] -> "off"
+        true -> "partial"
+      end
+    end
+
+    defp format_age(flag_name) do
+      case Bandera.Dashboard.Stale.age_days(flag_name) do
+        :never -> "—"
+        {:ok, days} -> "#{days}d ago"
+      end
+    end
+
+    defp prerequisite_count(flag) do
+      case Enum.count(flag.gates, &Bandera.Gate.prerequisite?/1) do
+        0 -> "—"
+        n -> to_string(n)
+      end
+    end
+
+    defp sort_arrow(col, col, :asc), do: "▴"
+    defp sort_arrow(col, col, :desc), do: "▾"
+    defp sort_arrow(_col, _sort, _dir), do: ""
   end
 end
