@@ -27,7 +27,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           stale_set: Bandera.Dashboard.Stale.stale_set(),
           usage_available: Bandera.Dashboard.Stale.usage_available?(),
           create_error: nil,
-          similar_pairs: []
+          similar_pairs: [],
+          base_path: "/"
         )
         |> load_flags()
 
@@ -35,15 +36,22 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     @impl true
-    def handle_params(params, _uri, socket) do
+    def handle_params(params, uri, socket) do
       view = if params["view"] == "table", do: :table, else: :cards
       grouped = params["grouped"] != "false"
       sort = parse_sort(params["sort"])
       sort_dir = if params["dir"] == "desc", do: :desc, else: :asc
+      base_path = URI.parse(uri).path
 
       {:noreply,
        socket
-       |> assign(view: view, grouped: grouped, sort: sort, sort_dir: sort_dir)
+       |> assign(
+         view: view,
+         grouped: grouped,
+         sort: sort,
+         sort_dir: sort_dir,
+         base_path: base_path
+       )
        |> recompute_groups()}
     end
 
@@ -89,17 +97,17 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         <div class={Theme.class(@theme, :view_controls)}>
           <span>
             <.link
-              patch={"/flags?" <> URI.encode_query(%{"view" => "cards", "grouped" => to_string(@grouped)})}
+              patch={@base_path <> "?" <> URI.encode_query(%{"view" => "cards", "grouped" => to_string(@grouped)})}
               class={Theme.class(@theme, if(@view == :cards, do: :view_toggle_active, else: :view_toggle_inactive))}
             >Cards</.link>
             <.link
-              patch="/flags?view=table"
+              patch={@base_path <> "?view=table"}
               class={Theme.class(@theme, if(@view == :table, do: :view_toggle_active, else: :view_toggle_inactive))}
             >Table</.link>
           </span>
           <.link
             :if={@view == :cards}
-            patch={"/flags?" <> URI.encode_query(%{"view" => "cards", "grouped" => to_string(not @grouped)})}
+            patch={@base_path <> "?" <> URI.encode_query(%{"view" => "cards", "grouped" => to_string(not @grouped)})}
             class={Theme.class(@theme, :grouping_toggle)}
           >
             {if @grouped, do: "[✓]", else: "[ ]"} Group by namespace

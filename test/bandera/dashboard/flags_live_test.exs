@@ -499,6 +499,24 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     refute html =~ "<summary"
   end
 
+  test "view and grouping toggle links use the actual mount path, not /flags", %{conn: conn} do
+    {:ok, _live, html} = live(conn, "/feature-flags")
+    assert html =~ ~s(href="/feature-flags?)
+    refute html =~ ~s(href="/flags?)
+  end
+
+  test "table view works when mounted at a custom path", %{conn: conn} do
+    {:ok, _live, html} = live(conn, "/feature-flags?view=table")
+    assert html =~ "bandera-table"
+  end
+
+  test "grouped=false works when mounted at a custom path", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, _live, html} = live(conn, "/feature-flags?grouped=false")
+    assert html =~ "billing_invoices"
+    refute html =~ "<summary"
+  end
+
   test "usage_warning is shown when Bandera.Usage is not running", %{conn: conn} do
     {:ok, _live, html} = live(conn, "/flags")
     assert html =~ "Stale flag detection is unavailable"
