@@ -479,6 +479,31 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     refute html =~ "scheduled 2026"
   end
 
+  test "defaults to card view with grouping on", %{conn: conn} do
+    {:ok, _live, html} = live(conn, "/flags")
+    assert html =~ "Table"
+    assert html =~ "Group by namespace"
+  end
+
+  test "?view=table switches to table view", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, _live, html} = live(conn, "/flags?view=table")
+    assert html =~ "bandera-table"
+    assert html =~ "Last evaluated"
+  end
+
+  test "?grouped=false shows full flag names without group headers", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, _live, html} = live(conn, "/flags?grouped=false")
+    assert html =~ "billing_invoices"
+    refute html =~ "<summary"
+  end
+
+  test "usage_warning is shown when Bandera.Usage is not running", %{conn: conn} do
+    {:ok, _live, html} = live(conn, "/flags")
+    assert html =~ "Stale flag detection is unavailable"
+  end
+
   test "refreshes when another node broadcasts a flag change", %{conn: conn} do
     Application.put_env(:bandera, :cache_bust_notifications,
       enabled: true,

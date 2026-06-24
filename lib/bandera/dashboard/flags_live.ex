@@ -19,11 +19,30 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           actor_drafts: %{},
           group_drafts: %{},
           theme: Bandera.Config.theme(),
-          flash_error: nil
+          flash_error: nil,
+          view: :cards,
+          grouped: true,
+          sort: :name,
+          sort_dir: :asc,
+          stale_set: MapSet.new(),
+          usage_available: Bandera.Dashboard.Stale.usage_available?()
         )
         |> load_flags()
 
       {:ok, socket}
+    end
+
+    @impl true
+    def handle_params(params, _uri, socket) do
+      view = if params["view"] == "table", do: :table, else: :cards
+      grouped = params["grouped"] != "false"
+      sort = parse_sort(params["sort"])
+      sort_dir = if params["dir"] == "desc", do: :desc, else: :asc
+
+      {:noreply,
+       socket
+       |> assign(view: view, grouped: grouped, sort: sort, sort_dir: sort_dir)
+       |> recompute_groups()}
     end
 
     @impl true
@@ -47,7 +66,31 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           />
         </form>
 
+        <.usage_warning :if={not @usage_available} theme={@theme} />
+
+        <div class={Theme.class(@theme, :view_controls)}>
+          <span>
+            <.link
+              patch={"/flags?" <> URI.encode_query(%{"view" => "cards", "grouped" => to_string(@grouped)})}
+              class={Theme.class(@theme, if(@view == :cards, do: :view_toggle_active, else: :view_toggle_inactive))}
+            >Cards</.link>
+            <.link
+              patch="/flags?view=table"
+              class={Theme.class(@theme, if(@view == :table, do: :view_toggle_active, else: :view_toggle_inactive))}
+            >Table</.link>
+          </span>
+          <.link
+            :if={@view == :cards}
+            patch={"/flags?" <> URI.encode_query(%{"view" => "cards", "grouped" => to_string(not @grouped)})}
+            class={Theme.class(@theme, :grouping_toggle)}
+          >
+            {if @grouped, do: "[✓]", else: "[ ]"} Group by namespace
+          </.link>
+        </div>
+
+        <%!-- Grouped card view --%>
         <details
+          :if={@view == :cards and @grouped}
           :for={{group, members} <- @groups}
           class={Theme.class(@theme, :group)}
           open={not group_collapsed?(@collapsed_groups, group)}
@@ -95,6 +138,66 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             </div>
           </div>
         </details>
+
+        <%!-- Flat (ungrouped) card view --%>
+        <div :if={@view == :cards and not @grouped}>
+          <div :for={{_group, members} <- @groups}>
+            <div :for={{display, flag} <- members}>
+              <div class={Theme.class(@theme, :row)}>
+                <span>
+                  <span class={Theme.class(@theme, :name)}>{display}</span>
+                  <.state_summary flag={flag} theme={@theme} />
+                </span>
+                <span>
+                  <button
+                    type="button"
+                    class={Theme.class(@theme, toggle_role(flag))}
+                    phx-click="toggle_boolean"
+                    phx-value-flag={flag.name}
+                  >{if boolean_on?(flag), do: "on", else: "off"}</button>
+                  <button
+                    type="button"
+                    class={Theme.class(@theme, :icon_button)}
+                    phx-click="toggle_row"
+                    phx-value-flag={flag.name}
+                  >
+                    {if expanded?(@expanded, flag), do: "▴", else: "▾"}
+                  </button>
+                </span>
+              </div>
+
+              <div :if={expanded?(@expanded, flag)} class={Theme.class(@theme, :editor)}>
+                <.flag_editor
+                  flag={flag}
+                  theme={@theme}
+                  actor_drafts={@actor_drafts}
+                  group_drafts={@group_drafts}
+                  all_flags={@all_flags}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <%!-- Table view --%>
+        <table :if={@view == :table} class={Theme.class(@theme, :table)}>
+          <thead>
+            <tr>
+              <th class={Theme.class(@theme, :th)}>Flag</th>
+              <th class={Theme.class(@theme, :th)}>State</th>
+              <th class={Theme.class(@theme, :th)}>Last evaluated</th>
+            </tr>
+          </thead>
+          <tbody>
+            <%= for {_group, members} <- @groups, {_display, flag} <- members do %>
+              <tr class={Theme.class(@theme, :tr)}>
+                <td class={Theme.class(@theme, :td)}>{flag.name}</td>
+                <td class={Theme.class(@theme, :td)}><.state_summary flag={flag} theme={@theme} /></td>
+                <td class={Theme.class(@theme, :td)}>—</td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
       </div>
       """
     end
@@ -356,7 +459,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     defp recompute_groups(socket) do
-      separator = Bandera.Config.group_separator()
+      separator = if socket.assigns.grouped, do: Bandera.Config.group_separator(), else: nil
 
       filtered =
         for flag <- socket.assigns.all_flags,
@@ -456,7 +559,18 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       end)
     end
 
-    defp refresh(socket), do: load_flags(socket)
+    defp refresh(socket) do
+      socket
+      |> load_flags()
+      |> assign(
+        stale_set: Bandera.Dashboard.Stale.stale_set(),
+        usage_available: Bandera.Dashboard.Stale.usage_available?()
+      )
+    end
+
+    defp parse_sort("last_evaluated"), do: :last_evaluated
+    defp parse_sort("state"), do: :state
+    defp parse_sort(_), do: :name
 
     @change_topic "bandera:changes"
 
