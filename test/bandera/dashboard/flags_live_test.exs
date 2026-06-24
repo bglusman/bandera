@@ -634,6 +634,44 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     end
   end
 
+  describe "similarity warnings" do
+    test "no warning shown when flag names are distinct", %{conn: conn} do
+      {:ok, false} = Bandera.disable(:billing_invoices)
+      {:ok, false} = Bandera.disable(:checkout)
+      {:ok, _live, html} = live(conn, "/flags")
+      refute html =~ "Possible typos detected"
+    end
+
+    test "shows similarity warning when two flags are near-duplicates", %{conn: conn} do
+      {:ok, false} = Bandera.disable(:checkout)
+      {:ok, false} = Bandera.disable(:chekout)
+      {:ok, _live, html} = live(conn, "/flags")
+      assert html =~ "Possible typos detected"
+      assert html =~ "checkout"
+      assert html =~ "chekout"
+    end
+
+    test "similarity warning appears above the flag list", %{conn: conn} do
+      {:ok, false} = Bandera.disable(:checkout)
+      {:ok, false} = Bandera.disable(:chekout)
+      {:ok, _live, html} = live(conn, "/flags")
+      {warning_pos, _} = :binary.match(html, "Possible typos detected")
+
+      # match the class attribute in the rendered HTML, not the CSS definition in the <style> block
+      {flag_pos, _} = :binary.match(html, ~s(class="bandera-row"))
+      assert warning_pos < flag_pos
+    end
+
+    test "warning disappears after similar flag is cleared", %{conn: conn} do
+      {:ok, false} = Bandera.disable(:checkout)
+      {:ok, false} = Bandera.disable(:chekout)
+      {:ok, live, html} = live(conn, "/flags")
+      assert html =~ "Possible typos detected"
+      html = render_click(live, "clear_flag", %{"flag" => "chekout"})
+      refute html =~ "Possible typos detected"
+    end
+  end
+
   test "refreshes when another node broadcasts a flag change", %{conn: conn} do
     Application.put_env(:bandera, :cache_bust_notifications,
       enabled: true,

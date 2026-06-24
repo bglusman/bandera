@@ -26,7 +26,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           sort_dir: :asc,
           stale_set: Bandera.Dashboard.Stale.stale_set(),
           usage_available: Bandera.Dashboard.Stale.usage_available?(),
-          create_error: nil
+          create_error: nil,
+          similar_pairs: []
         )
         |> load_flags()
 
@@ -82,6 +83,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         </div>
 
         <.usage_warning :if={not @usage_available} theme={@theme} />
+
+        <.similarity_warning :if={@similar_pairs != []} pairs={@similar_pairs} theme={@theme} />
 
         <div class={Theme.class(@theme, :view_controls)}>
           <span>
@@ -578,7 +581,13 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           {:error, _} -> []
         end
 
-      socket |> assign(:all_flags, flags) |> recompute_groups()
+      flag_names = Enum.map(flags, & &1.name)
+      similar = Bandera.Dashboard.Similarity.similar_pairs(flag_names)
+
+      socket
+      |> assign(:all_flags, flags)
+      |> assign(:similar_pairs, similar)
+      |> recompute_groups()
     end
 
     defp recompute_groups(socket) do
