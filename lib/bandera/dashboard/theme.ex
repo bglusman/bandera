@@ -50,12 +50,14 @@ defmodule Bandera.Dashboard.Theme do
           | :view_toggle_inactive
           | :grouping_toggle
           | :create_form
+          | :similarity_warning
 
   @roles ~w(wrap heading flash flash_warn search group group_summary count row name
             full_name editor fieldset legend gate_list gate_item input select
             primary_button neutral_button danger_button icon_button toggle_on
             toggle_off summary icon_hint table th td tr view_controls
-            view_toggle_active view_toggle_inactive grouping_toggle create_form)a
+            view_toggle_active view_toggle_inactive grouping_toggle create_form
+            similarity_warning)a
 
   @doc "Every semantic role the dashboard styles."
   @spec roles() :: [role]
@@ -101,6 +103,7 @@ defmodule Bandera.Dashboard.Theme do
   defp standalone(:grouping_toggle), do: "bandera-grouping-toggle"
   defp standalone(:full_name), do: "bandera-full-name"
   defp standalone(:create_form), do: "bandera-create-form"
+  defp standalone(:similarity_warning), do: "bandera-similarity-warning"
 
   defp daisyui(:wrap), do: "max-w-3xl mx-auto p-4"
   defp daisyui(:heading), do: "text-xl font-bold mb-4"
@@ -141,4 +144,5 @@ defmodule Bandera.Dashboard.Theme do
   defp daisyui(:grouping_toggle), do: "text-base-content/60 cursor-pointer"
   defp daisyui(:full_name), do: "text-xs text-base-content/40 mt-0.5 block"
   defp daisyui(:create_form), do: "flex gap-2 items-center mb-4"
+  defp daisyui(:similarity_warning), do: "alert alert-warning mb-3"
 end

@@ -191,6 +191,15 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     .bandera-tr:hover > .bandera-td { background: var(--bandera-surface-2, #f8fafc); }
     .bandera-create-form { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
     .bandera-create-form .bandera-input { flex: 1 1 200px; }
+    .bandera-similarity-warning {
+      padding: 10px 14px; margin-bottom: 14px; font-size: 13px;
+      color: var(--bandera-warn-fg, #92400e);
+      background: var(--bandera-warn-bg, #fffbeb);
+      border: 1px solid var(--bandera-warn-border, #fde68a);
+      border-radius: var(--bandera-radius-sm, 8px);
+    }
+    .bandera-similarity-warning ul { margin: 6px 0 0; padding-left: 18px; }
+    .bandera-similarity-warning li { margin-bottom: 2px; }
     """
 
     @doc """
@@ -244,6 +253,24 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         <a href="https://hexdocs.pm/bandera/Bandera.Usage.html" target="_blank" rel="noopener">
           See the documentation →
         </a>
+      </div>
+      """
+    end
+
+    attr(:pairs, :list, required: true)
+    attr(:theme, :atom, default: :standalone)
+
+    @spec similarity_warning(map()) :: Phoenix.LiveView.Rendered.t()
+    def similarity_warning(assigns) do
+      ~H"""
+      <div :if={@pairs != []} class={Theme.class(@theme, :similarity_warning)}>
+        <strong>Possible typos detected</strong> — one of each pair may be a typo of the other.
+        <ul>
+          <li :for={{a, b, score} <- @pairs}>
+            <code>:{a}</code> and <code>:{b}</code>
+            <span>(score: {Float.round(score, 2)})</span>
+          </li>
+        </ul>
       </div>
       """
     end
