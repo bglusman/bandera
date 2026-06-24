@@ -24,7 +24,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           grouped: true,
           sort: :name,
           sort_dir: :asc,
-          stale_set: MapSet.new(),
+          stale_set: Bandera.Dashboard.Stale.stale_set(),
           usage_available: Bandera.Dashboard.Stale.usage_available?()
         )
         |> load_flags()
@@ -106,8 +106,21 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           <div :for={{display, flag} <- members}>
             <div class={Theme.class(@theme, :row)}>
               <span>
-                <span class={Theme.class(@theme, :name)}>{display}</span>
+                <span class={Theme.class(@theme, :name)}>
+                  {display}
+                  <span
+                    :if={@grouped and display != to_string(flag.name)}
+                    class={Theme.class(@theme, :full_name)}
+                  >{flag.name}</span>
+                </span>
                 <.state_summary flag={flag} theme={@theme} />
+                <.stale_indicator
+                  :if={MapSet.member?(@stale_set, flag.name)}
+                  flag_name={flag.name}
+                  theme={@theme}
+                />
+                <span :if={has_schedule?(flag)} class={Theme.class(@theme, :icon_hint)} title="Has a schedule">📅</span>
+                <span :if={has_prerequisites?(flag)} class={Theme.class(@theme, :icon_hint)} title="Has prerequisites">🔗</span>
               </span>
               <span>
                 <button
@@ -145,8 +158,17 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             <div :for={{display, flag} <- members}>
               <div class={Theme.class(@theme, :row)}>
                 <span>
-                  <span class={Theme.class(@theme, :name)}>{display}</span>
+                  <span class={Theme.class(@theme, :name)}>
+                    {display}
+                  </span>
                   <.state_summary flag={flag} theme={@theme} />
+                  <.stale_indicator
+                    :if={MapSet.member?(@stale_set, flag.name)}
+                    flag_name={flag.name}
+                    theme={@theme}
+                  />
+                  <span :if={has_schedule?(flag)} class={Theme.class(@theme, :icon_hint)} title="Has a schedule">📅</span>
+                  <span :if={has_prerequisites?(flag)} class={Theme.class(@theme, :icon_hint)} title="Has prerequisites">🔗</span>
                 </span>
                 <span>
                   <button
@@ -593,5 +615,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         s -> s
       end
     end
+
+    defp has_schedule?(flag), do: Enum.any?(flag.gates, &Bandera.Gate.schedule?/1)
+    defp has_prerequisites?(flag), do: Enum.any?(flag.gates, &Bandera.Gate.prerequisite?/1)
   end
 end

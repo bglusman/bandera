@@ -504,6 +504,43 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     assert html =~ "Stale flag detection is unavailable"
   end
 
+  test "stale flag shows ⚠ icon when Usage is running and flag is stale", %{conn: conn} do
+    start_supervised!(Bandera.Usage)
+    Bandera.Usage.attach()
+    on_exit(fn -> Bandera.Usage.detach() end)
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    old_time = DateTime.add(DateTime.utc_now(), -40 * 86_400, :second)
+    :ets.insert(Bandera.Usage, {:billing_invoices, old_time})
+
+    {:ok, _live, html} = live(conn, "/flags")
+    assert html =~ "⚠"
+  end
+
+  test "flag with schedule gate shows 📅 icon", %{conn: conn} do
+    {:ok, true} =
+      Bandera.enable(:billing_invoices,
+        schedule: {"2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z"}
+      )
+
+    {:ok, _live, html} = live(conn, "/flags")
+    assert html =~ "📅"
+  end
+
+  test "flag with prerequisite gate shows 🔗 icon", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, true} = Bandera.enable(:billing_parent)
+    Bandera.enable(:billing_invoices, requires: {:billing_parent, true})
+
+    {:ok, _live, html} = live(conn, "/flags")
+    assert html =~ "🔗"
+  end
+
+  test "grouped mode shows full namespaced name as subtitle", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, _live, html} = live(conn, "/flags")
+    assert html =~ "billing_invoices"
+  end
+
   test "refreshes when another node broadcasts a flag change", %{conn: conn} do
     Application.put_env(:bandera, :cache_bust_notifications,
       enabled: true,
