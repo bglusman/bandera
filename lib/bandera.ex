@@ -613,7 +613,15 @@ defmodule Bandera do
   defp maybe_auto_create(flag_name) do
     if Application.get_env(:bandera, :auto_create, true) and
          not String.starts_with?(to_string(flag_name), @segment_prefix) do
-      Store.active().put(flag_name, Gate.new(:boolean, false))
+      case Store.active().put(flag_name, Gate.new(:boolean, false)) do
+        {:ok, _} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "[Bandera] auto_create put for #{inspect(flag_name)} failed: #{inspect(reason)}"
+          )
+      end
     end
   end
 end
