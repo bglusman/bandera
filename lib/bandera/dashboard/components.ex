@@ -148,6 +148,47 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       border: 1px solid var(--bandera-danger-border, #fecaca);
       border-radius: var(--bandera-radius-sm, 8px);
     }
+    .bandera-flash-warn {
+      padding: 10px 12px; margin-bottom: 14px; font-size: 14px;
+      color: var(--bandera-warn-fg, #92400e);
+      background: var(--bandera-warn-bg, #fffbeb);
+      border: 1px solid var(--bandera-warn-border, #fde68a);
+      border-radius: var(--bandera-radius-sm, 8px);
+    }
+    .bandera-icon-hint { font-size: 13px; margin-left: 6px; cursor: default; }
+    .bandera-full-name {
+      font-size: 11px; font-weight: 400;
+      color: var(--bandera-muted, #94a3b8);
+      display: block; margin-top: 1px;
+    }
+    .bandera-view-controls {
+      display: flex; gap: 16px; align-items: center; margin-bottom: 18px; font-size: 13px;
+    }
+    .bandera-view-toggle {
+      padding: 5px 11px; border-radius: var(--bandera-radius-sm, 8px);
+      border: 1px solid var(--bandera-border, #e2e8f0);
+      color: var(--bandera-muted, #94a3b8); text-decoration: none; font-size: 13px;
+    }
+    .bandera-view-toggle--active {
+      background: var(--bandera-primary, #6d28d9);
+      color: var(--bandera-primary-fg, #ffffff); border-color: transparent;
+    }
+    .bandera-grouping-toggle { color: var(--bandera-muted, #94a3b8); text-decoration: none; font-size: 13px; }
+    .bandera-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    .bandera-th {
+      text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--bandera-muted, #94a3b8);
+      border-bottom: 2px solid var(--bandera-border, #e2e8f0);
+    }
+    .bandera-th--sortable { cursor: pointer; }
+    .bandera-th--sortable:hover { color: var(--bandera-fg, #1f2937); }
+    .bandera-td {
+      padding: 10px 12px; font-size: 14px;
+      border-bottom: 1px solid var(--bandera-border, #e2e8f0);
+      vertical-align: middle;
+    }
+    .bandera-tr:hover > .bandera-td { background: var(--bandera-surface-2, #f8fafc); }
     """
 
     @doc """
@@ -187,6 +228,42 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         {if @parts == [], do: "no gates", else: Enum.join(@parts, " · ")}
       </span>
       """
+    end
+
+    @doc "Renders an amber warning banner when Bandera.Usage is not running."
+    attr(:theme, :atom, default: :standalone)
+
+    @spec usage_warning(map()) :: Phoenix.LiveView.Rendered.t()
+    def usage_warning(assigns) do
+      ~H"""
+      <div class={Theme.class(@theme, :flash_warn)}>
+        Stale flag detection is unavailable. Add <code>Bandera.Usage</code> to your
+        supervision tree and call <code>Bandera.Usage.attach/0</code> at boot to enable it.
+        <a href="https://hexdocs.pm/bandera/Bandera.Usage.html" target="_blank" rel="noopener">
+          See the documentation →
+        </a>
+      </div>
+      """
+    end
+
+    @doc "Renders a stale hint icon with age for a flag known to be stale."
+    attr(:flag_name, :atom, required: true)
+    attr(:theme, :atom, default: :standalone)
+
+    @spec stale_indicator(map()) :: Phoenix.LiveView.Rendered.t()
+    def stale_indicator(assigns) do
+      assigns = assign(assigns, :label, stale_label(assigns.flag_name))
+
+      ~H"""
+      <span class={Theme.class(@theme, :icon_hint)} title={@label}>⚠</span>
+      """
+    end
+
+    defp stale_label(flag_name) do
+      case Bandera.Dashboard.Stale.age_days(flag_name) do
+        :never -> "Never evaluated"
+        {:ok, days} -> "Stale — last seen #{days}d ago"
+      end
     end
 
     defp summary_parts(gates) do
@@ -278,5 +355,305 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     defp percent(ratio), do: round(ratio * 100)
+
+    @doc "Renders the gate editor panel for a flag. Event handlers live in FlagsLive."
+    attr(:flag, :map, required: true)
+    attr(:theme, :atom, default: :standalone)
+    attr(:actor_drafts, :map, default: %{})
+    attr(:group_drafts, :map, default: %{})
+    attr(:all_flags, :list, default: [])
+
+    @spec flag_editor(map()) :: Phoenix.LiveView.Rendered.t()
+    def flag_editor(assigns) do
+      ~H"""
+      <fieldset class={Theme.class(@theme, :fieldset)}>
+        <legend class={Theme.class(@theme, :legend)}>Actors</legend>
+        <ul class={Theme.class(@theme, :gate_list)}>
+          <li :for={id <- actor_targets(@flag)} class={Theme.class(@theme, :gate_item)}>
+            <code>{id}</code>
+            <button
+              type="button"
+              class={Theme.class(@theme, :danger_button)}
+              phx-click="remove_actor"
+              phx-value-flag={@flag.name}
+              phx-value-actor={id}
+            >remove</button>
+          </li>
+        </ul>
+        <form phx-submit="add_actor" phx-change="actor_input">
+          <input type="hidden" name="flag" value={@flag.name} />
+          <input
+            type="text"
+            name="actor"
+            value={Map.get(@actor_drafts, to_string(@flag.name), "")}
+            placeholder="actor id"
+            class={Theme.class(@theme, :input)}
+          />
+          <button class={Theme.class(@theme, :primary_button)}>add actor</button>
+        </form>
+      </fieldset>
+
+      <fieldset class={Theme.class(@theme, :fieldset)}>
+        <legend class={Theme.class(@theme, :legend)}>Groups</legend>
+        <ul class={Theme.class(@theme, :gate_list)}>
+          <li :for={name <- group_targets(@flag)} class={Theme.class(@theme, :gate_item)}>
+            <code>{name}</code>
+            <button
+              type="button"
+              class={Theme.class(@theme, :danger_button)}
+              phx-click="remove_group"
+              phx-value-flag={@flag.name}
+              phx-value-group={name}
+            >remove</button>
+          </li>
+        </ul>
+        <form phx-submit="add_group" phx-change="group_input">
+          <input type="hidden" name="flag" value={@flag.name} />
+          <input
+            type="text"
+            name="group"
+            value={Map.get(@group_drafts, to_string(@flag.name), "")}
+            placeholder="group name"
+            class={Theme.class(@theme, :input)}
+          />
+          <button class={Theme.class(@theme, :primary_button)}>add group</button>
+        </form>
+      </fieldset>
+
+      <fieldset class={Theme.class(@theme, :fieldset)}>
+        <legend class={Theme.class(@theme, :legend)}>Percentage</legend>
+        <form phx-submit="set_percentage">
+          <input type="hidden" name="flag" value={@flag.name} />
+          <input type="number" name="percent" min="1" max="99" placeholder="%" class={Theme.class(@theme, :input)} />
+          <select name="kind" class={Theme.class(@theme, :select)}>
+            <option value="actors">of actors</option>
+            <option value="time">of time</option>
+          </select>
+          <button class={Theme.class(@theme, :primary_button)}>set</button>
+          <button
+            type="button"
+            class={Theme.class(@theme, :neutral_button)}
+            phx-click="clear_percentage"
+            phx-value-flag={@flag.name}
+          >clear</button>
+        </form>
+      </fieldset>
+
+      {render_variants(assigns, @flag)}
+      {render_rule(assigns, @flag)}
+      {render_segments(assigns, @flag)}
+      {render_prerequisites(assigns, @flag)}
+      {render_schedule(assigns, @flag)}
+
+      <button
+        type="button"
+        class={Theme.class(@theme, :danger_button)}
+        phx-click="clear_flag"
+        phx-value-flag={@flag.name}
+      >Clear whole flag</button>
+      """
+    end
+
+    @constraint_operators ~w(eq neq in not_in contains gt gte lt lte matches)a
+
+    defp render_variants(assigns, flag) do
+      assigns = Phoenix.Component.assign(assigns, :flag, flag)
+
+      ~H"""
+      <fieldset class={Theme.class(@theme, :fieldset)}>
+        <legend class={Theme.class(@theme, :legend)}>Variants</legend>
+        <ul class={Theme.class(@theme, :gate_list)}>
+          <li :for={{name, weight} <- variant_weights(@flag)} class={Theme.class(@theme, :gate_item)}>
+            <code>{name} ({weight})</code>
+            <button
+              type="button"
+              class={Theme.class(@theme, :danger_button)}
+              phx-click="remove_variant"
+              phx-value-flag={@flag.name}
+              phx-value-variant={name}
+            >remove</button>
+          </li>
+        </ul>
+        <form phx-submit="add_variant">
+          <input type="hidden" name="flag" value={@flag.name} />
+          <input type="text" name="variant" placeholder="variant name" class={Theme.class(@theme, :input)} />
+          <input type="number" name="weight" min="1" step="any" placeholder="weight" class={Theme.class(@theme, :input)} />
+          <button class={Theme.class(@theme, :primary_button)}>add variant</button>
+        </form>
+      </fieldset>
+      """
+    end
+
+    defp render_rule(assigns, flag) do
+      assigns =
+        assigns
+        |> Phoenix.Component.assign(:flag, flag)
+        |> Phoenix.Component.assign(:constraints, rule_constraints(flag))
+        |> Phoenix.Component.assign(:operators, @constraint_operators)
+
+      ~H"""
+      <fieldset class={Theme.class(@theme, :fieldset)}>
+        <legend class={Theme.class(@theme, :legend)}>Rule</legend>
+        <ul class={Theme.class(@theme, :gate_list)}>
+          <li :for={{c, i} <- Enum.with_index(@constraints)} class={Theme.class(@theme, :gate_item)}>
+            <code>{c.attribute} {c.operator} {Enum.join(c.values, ", ")}</code>
+            <button
+              type="button"
+              class={Theme.class(@theme, :danger_button)}
+              phx-click="remove_constraint"
+              phx-value-flag={@flag.name}
+              phx-value-index={i}
+            >remove</button>
+          </li>
+        </ul>
+        <form phx-submit="add_constraint">
+          <input type="hidden" name="flag" value={@flag.name} />
+          <input type="text" name="attribute" placeholder="attribute" class={Theme.class(@theme, :input)} />
+          <select name="operator" class={Theme.class(@theme, :select)}>
+            <option :for={op <- @operators} value={op}>{op}</option>
+          </select>
+          <input type="text" name="values" placeholder="values (comma-separated)" class={Theme.class(@theme, :input)} />
+          <button class={Theme.class(@theme, :primary_button)}>add constraint</button>
+        </form>
+      </fieldset>
+      """
+    end
+
+    defp render_segments(assigns, flag) do
+      assigns = Phoenix.Component.assign(assigns, :flag, flag)
+
+      ~H"""
+      <fieldset class={Theme.class(@theme, :fieldset)}>
+        <legend class={Theme.class(@theme, :legend)}>Segments</legend>
+        <ul class={Theme.class(@theme, :gate_list)}>
+          <li :for={seg <- segment_targets(@flag)} class={Theme.class(@theme, :gate_item)}>
+            <code>{seg}</code>
+            <button
+              type="button"
+              class={Theme.class(@theme, :danger_button)}
+              phx-click="remove_segment"
+              phx-value-flag={@flag.name}
+              phx-value-segment={seg}
+            >remove</button>
+          </li>
+        </ul>
+        <form phx-submit="add_segment">
+          <input type="hidden" name="flag" value={@flag.name} />
+          <input type="text" name="segment" placeholder="segment name" class={Theme.class(@theme, :input)} />
+          <button class={Theme.class(@theme, :primary_button)}>add segment</button>
+        </form>
+      </fieldset>
+      """
+    end
+
+    defp render_prerequisites(assigns, flag) do
+      assigns =
+        assigns
+        |> Phoenix.Component.assign(:flag, flag)
+        |> Phoenix.Component.assign(:candidates, prerequisite_candidates(assigns.all_flags, flag))
+
+      ~H"""
+      <fieldset class={Theme.class(@theme, :fieldset)}>
+        <legend class={Theme.class(@theme, :legend)}>Prerequisites</legend>
+        <ul class={Theme.class(@theme, :gate_list)}>
+          <li :for={g <- prerequisite_gates(@flag)} class={Theme.class(@theme, :gate_item)}>
+            <code>{g.for} (must be {if g.enabled, do: "on", else: "off"})</code>
+            <button
+              type="button"
+              class={Theme.class(@theme, :danger_button)}
+              phx-click="remove_prerequisite"
+              phx-value-flag={@flag.name}
+              phx-value-parent={g.for}
+            >remove</button>
+          </li>
+        </ul>
+        <form phx-submit="add_prerequisite">
+          <input type="hidden" name="flag" value={@flag.name} />
+          <select name="parent" class={Theme.class(@theme, :select)}>
+            <option value="">flag…</option>
+            <option :for={f <- @candidates} value={f}>{f}</option>
+          </select>
+          <select name="required" class={Theme.class(@theme, :select)}>
+            <option value="on">on</option>
+            <option value="off">off</option>
+          </select>
+          <button class={Theme.class(@theme, :primary_button)}>add prerequisite</button>
+        </form>
+      </fieldset>
+      """
+    end
+
+    defp render_schedule(assigns, flag) do
+      assigns =
+        assigns
+        |> Phoenix.Component.assign(:flag, flag)
+        |> Phoenix.Component.assign(:window, schedule_window(flag))
+
+      ~H"""
+      <fieldset class={Theme.class(@theme, :fieldset)}>
+        <legend class={Theme.class(@theme, :legend)}>Schedule</legend>
+        <form phx-submit="set_schedule">
+          <input type="hidden" name="flag" value={@flag.name} />
+          <input
+            type="text"
+            name="from"
+            value={@window["from"]}
+            placeholder="from (ISO 8601)"
+            class={Theme.class(@theme, :input)}
+          />
+          <input
+            type="text"
+            name="until"
+            value={@window["until"]}
+            placeholder="until (ISO 8601)"
+            class={Theme.class(@theme, :input)}
+          />
+          <button class={Theme.class(@theme, :primary_button)}>set</button>
+          <button
+            type="button"
+            class={Theme.class(@theme, :neutral_button)}
+            phx-click="clear_schedule"
+            phx-value-flag={@flag.name}
+          >clear</button>
+        </form>
+      </fieldset>
+      """
+    end
+
+    defp actor_targets(flag) do
+      for g <- flag.gates, Bandera.Gate.actor?(g), do: g.for
+    end
+
+    defp group_targets(flag) do
+      for g <- flag.gates, Bandera.Gate.group?(g), do: g.for
+    end
+
+    defp segment_targets(flag), do: for(g <- flag.gates, Bandera.Gate.segment?(g), do: g.for)
+
+    defp prerequisite_gates(flag), do: for(g <- flag.gates, Bandera.Gate.prerequisite?(g), do: g)
+
+    defp prerequisite_candidates(all_flags, flag),
+      do: for(f <- all_flags, f.name != flag.name, do: f.name)
+
+    defp variant_weights(flag) do
+      case Enum.find(flag.gates, &Bandera.Gate.variant?/1) do
+        nil -> %{}
+        gate -> gate.value
+      end
+    end
+
+    defp rule_constraints(flag) do
+      case Enum.find(flag.gates, &Bandera.Gate.rule?/1) do
+        nil -> []
+        gate -> gate.value
+      end
+    end
+
+    defp schedule_window(flag) do
+      case Enum.find(flag.gates, &Bandera.Gate.schedule?/1) do
+        nil -> %{"from" => nil, "until" => nil}
+        gate -> gate.value
+      end
+    end
   end
 end
