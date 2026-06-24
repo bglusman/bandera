@@ -189,6 +189,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       vertical-align: middle;
     }
     .bandera-tr:hover > .bandera-td { background: var(--bandera-surface-2, #f8fafc); }
+    .bandera-create-form { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+    .bandera-create-form .bandera-input { flex: 1 1 200px; }
     """
 
     @doc """

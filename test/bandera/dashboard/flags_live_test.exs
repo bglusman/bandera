@@ -586,6 +586,47 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     assert alpha_pos < billing_pos
   end
 
+  describe "create flag" do
+    test "create form is rendered above the flag list", %{conn: conn} do
+      {:ok, _live, html} = live(conn, "/flags")
+      assert html =~ ~s(phx-submit="create_flag")
+      assert html =~ "new.flag.name"
+    end
+
+    test "valid name creates a disabled flag and shows it in the list", %{conn: conn} do
+      {:ok, live, _html} = live(conn, "/flags")
+      html = render_submit(live, "create_flag", %{"flag_name" => "my_new_flag"})
+      assert html =~ "my_new_flag"
+      refute Bandera.enabled?(:my_new_flag)
+      {:ok, flag} = Bandera.get_flag(:my_new_flag)
+      assert Enum.any?(flag.gates, fn g -> g.type == :boolean and not g.enabled end)
+    end
+
+    test "blank name shows inline error", %{conn: conn} do
+      {:ok, live, _html} = live(conn, "/flags")
+      html = render_submit(live, "create_flag", %{"flag_name" => ""})
+      assert html =~ "can&#39;t be blank" or html =~ "can't be blank"
+    end
+
+    test "invalid characters show inline error", %{conn: conn} do
+      {:ok, live, _html} = live(conn, "/flags")
+      html = render_submit(live, "create_flag", %{"flag_name" => "My-Flag!"})
+      assert html =~ "lowercase"
+    end
+
+    test "name starting with a digit shows inline error", %{conn: conn} do
+      {:ok, live, _html} = live(conn, "/flags")
+      html = render_submit(live, "create_flag", %{"flag_name" => "1bad"})
+      assert html =~ "lowercase"
+    end
+
+    test "valid names with dots and underscores are accepted", %{conn: conn} do
+      {:ok, live, _html} = live(conn, "/flags")
+      html = render_submit(live, "create_flag", %{"flag_name" => "billing.invoices_v2"})
+      assert html =~ "billing.invoices_v2"
+    end
+  end
+
   test "refreshes when another node broadcasts a flag change", %{conn: conn} do
     Application.put_env(:bandera, :cache_bust_notifications,
       enabled: true,

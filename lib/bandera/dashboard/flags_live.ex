@@ -25,7 +25,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           sort: :name,
           sort_dir: :asc,
           stale_set: Bandera.Dashboard.Stale.stale_set(),
-          usage_available: Bandera.Dashboard.Stale.usage_available?()
+          usage_available: Bandera.Dashboard.Stale.usage_available?(),
+          create_error: nil
         )
         |> load_flags()
 
@@ -65,6 +66,20 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             phx-debounce="150"
           />
         </form>
+
+        <form phx-submit="create_flag" class={Theme.class(@theme, :create_form)}>
+          <input
+            class={Theme.class(@theme, :input)}
+            type="text"
+            name="flag_name"
+            placeholder="new.flag.name"
+            autocomplete="off"
+          />
+          <button class={Theme.class(@theme, :primary_button)} type="submit">Create</button>
+        </form>
+        <div :if={@create_error} class={Theme.class(@theme, :flash)}>
+          {@create_error}
+        </div>
 
         <.usage_warning :if={not @usage_available} theme={@theme} />
 
@@ -489,6 +504,30 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     def handle_event("clear_schedule", %{"flag" => name}, socket) do
       Bandera.clear(String.to_existing_atom(name), schedule: true)
       {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
+    end
+
+    @create_name_regex ~r/^[a-z][a-z0-9_.]*$/
+    def handle_event("create_flag", %{"flag_name" => raw}, socket) do
+      name = String.trim(raw)
+
+      cond do
+        name == "" ->
+          {:noreply, assign(socket, :create_error, "Flag name can't be blank.")}
+
+        not Regex.match?(@create_name_regex, name) ->
+          {:noreply,
+           assign(
+             socket,
+             :create_error,
+             "Invalid name. Use lowercase letters, digits, dots, and underscores; must start with a letter."
+           )}
+
+        true ->
+          # String.to_atom is intentional: deliberate creation from authenticated dashboard
+          flag_atom = String.to_atom(name)
+          Bandera.disable(flag_atom)
+          {:noreply, socket |> assign(:create_error, nil) |> refresh()}
+      end
     end
 
     def handle_event("sort", %{"col" => col}, socket) do
