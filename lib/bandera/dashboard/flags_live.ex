@@ -514,6 +514,9 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         name == "" ->
           {:noreply, assign(socket, :create_error, "Flag name can't be blank.")}
 
+        String.length(name) > 64 ->
+          {:noreply, assign(socket, :create_error, "Flag name must be 64 characters or fewer.")}
+
         not Regex.match?(@create_name_regex, name) ->
           {:noreply,
            assign(
@@ -523,10 +526,18 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
            )}
 
         true ->
-          # String.to_atom is intentional: deliberate creation from authenticated dashboard
+          # String.to_atom is safe here: input is restricted to at most 64 characters
+          # matching ~r/^[a-z][a-z0-9_.]*$/, only reachable from an authenticated dashboard session.
           flag_atom = String.to_atom(name)
-          Bandera.disable(flag_atom)
-          {:noreply, socket |> assign(:create_error, nil) |> refresh()}
+
+          case Bandera.disable(flag_atom) do
+            {:ok, _} ->
+              {:noreply, socket |> assign(:create_error, nil) |> refresh()}
+
+            {:error, reason} ->
+              {:noreply,
+               assign(socket, :create_error, "Failed to create flag: #{inspect(reason)}")}
+          end
       end
     end
 

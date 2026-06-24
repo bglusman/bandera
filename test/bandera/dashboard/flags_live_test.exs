@@ -625,6 +625,13 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
       html = render_submit(live, "create_flag", %{"flag_name" => "billing.invoices_v2"})
       assert html =~ "billing.invoices_v2"
     end
+
+    test "name exceeding 64 characters shows inline error", %{conn: conn} do
+      {:ok, live, _html} = live(conn, "/flags")
+      long_name = String.duplicate("a", 65)
+      html = render_submit(live, "create_flag", %{"flag_name" => long_name})
+      assert html =~ "64 characters"
+    end
   end
 
   test "refreshes when another node broadcasts a flag change", %{conn: conn} do
