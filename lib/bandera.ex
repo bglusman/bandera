@@ -52,6 +52,10 @@ defmodule Bandera do
 
     result =
       case Store.active().lookup(flag_name) do
+        {:ok, %Flag{gates: []} = _flag} ->
+          maybe_auto_create(flag_name)
+          false
+
         {:ok, flag} ->
           if prerequisites_met?(flag, eval_opts, [flag_name]) do
             Flag.enabled?(expand_segments(flag), eval_opts)
@@ -604,5 +608,12 @@ defmodule Bandera do
   defp lookup_failed(flag_name, error, default) do
     Logger.warning("[Bandera] store lookup for #{inspect(flag_name)} failed: #{inspect(error)}")
     default
+  end
+
+  defp maybe_auto_create(flag_name) do
+    if Application.get_env(:bandera, :auto_create, true) and
+         not String.starts_with?(to_string(flag_name), @segment_prefix) do
+      Store.active().put(flag_name, Gate.new(:boolean, false))
+    end
   end
 end
