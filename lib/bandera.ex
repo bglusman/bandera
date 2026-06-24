@@ -517,14 +517,23 @@ defmodule Bandera do
     days = opts |> Keyword.get(:older_than, 30) |> max(0)
     cutoff = DateTime.add(DateTime.utc_now(), -days * 86_400, :second)
 
+    tracker_started_at = safe_started_at()
+
     case all_flag_names() do
       {:ok, names} ->
         names
         |> Enum.reject(&segment_flag?/1)
         |> Enum.filter(fn name ->
           case safe_last_evaluated(name) do
-            nil -> true
-            at -> DateTime.compare(at, cutoff) == :lt
+            nil ->
+              # Never seen since the tracker started. Only report as stale if
+              # the tracker itself has been running long enough that a healthy
+              # flag would have been evaluated at least once by now.
+              tracker_started_at != nil and
+                DateTime.compare(tracker_started_at, cutoff) == :lt
+
+            at ->
+              DateTime.compare(at, cutoff) == :lt
           end
         end)
 
@@ -536,6 +545,12 @@ defmodule Bandera do
   # Internal segment definitions are stored as reserved flags and are never
   # evaluated via enabled?/2, so they would always look stale — exclude them.
   defp segment_flag?(name), do: String.starts_with?(to_string(name), @segment_prefix)
+
+  defp safe_started_at do
+    Bandera.Usage.started_at()
+  rescue
+    ArgumentError -> nil
+  end
 
   # Calls Usage.last_evaluated but returns nil when the Usage table isn't running.
   defp safe_last_evaluated(flag_name) do

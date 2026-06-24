@@ -10,6 +10,7 @@ defmodule Bandera.Usage do
   @table __MODULE__
   @handler {__MODULE__, :usage}
   @events [[:bandera, :enabled?], [:bandera, :variant]]
+  @started_at_key :__started_at__
 
   @doc "Starts the Usage tracker and creates its ETS table. Add to your supervision tree."
   @spec start_link(keyword) :: GenServer.on_start()
@@ -19,6 +20,7 @@ defmodule Bandera.Usage do
   @impl true
   def init(:ok) do
     :ets.new(@table, [:named_table, :public, :set, write_concurrency: true])
+    :ets.insert(@table, {@started_at_key, DateTime.utc_now()})
     {:ok, %{}}
   end
 
@@ -41,6 +43,15 @@ defmodule Bandera.Usage do
     :ok
   rescue
     _error -> :ok
+  end
+
+  @doc "Returns the UTC `DateTime` when this tracker started, or `nil` if not running."
+  @spec started_at() :: DateTime.t() | nil
+  def started_at do
+    case :ets.lookup(@table, @started_at_key) do
+      [{@started_at_key, at}] -> at
+      [] -> nil
+    end
   end
 
   @doc "Returns the last UTC `DateTime` `flag_name` was evaluated, or `nil` if never seen."

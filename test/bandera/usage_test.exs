@@ -82,6 +82,22 @@ defmodule Bandera.UsageTest do
            end)
   end
 
+  test "stale_flags does not report never-seen flags as stale when tracker just started" do
+    {:ok, _} = Bandera.enable(:unseen)
+    # started_at is set to now in setup via start_supervised!(Usage); don't touch it
+    # :unseen has no ETS entry — tracker too young to call it stale
+    refute :unseen in Bandera.stale_flags(older_than: 30)
+  end
+
+  test "stale_flags reports never-seen flag as stale when tracker has been running long enough" do
+    {:ok, _} = Bandera.enable(:ancient_unseen)
+    # Backdate started_at so the tracker looks 60 days old
+    old_start = DateTime.add(DateTime.utc_now(), -60, :day)
+    :ets.insert(Bandera.Usage, {:__started_at__, old_start})
+
+    assert :ancient_unseen in Bandera.stale_flags(older_than: 30)
+  end
+
   test "mix bandera.flags --stale prints stale flag names" do
     import ExUnit.CaptureIO
     {:ok, _} = Bandera.enable(:old)
