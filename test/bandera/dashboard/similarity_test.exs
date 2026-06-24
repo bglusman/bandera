@@ -31,7 +31,6 @@ defmodule Bandera.Dashboard.SimilarityTest do
 
     test "emits each pair only once (no duplicates)" do
       pairs = Similarity.similar_pairs([:checkout, :chekout, :billing])
-      assert length(pairs) == length(Enum.uniq(pairs))
       # Confirm {a,b} is not also emitted as {b,a}
       pair_names = Enum.map(pairs, fn {a, b, _} -> MapSet.new([a, b]) end)
       assert length(pair_names) == length(Enum.uniq(pair_names))
@@ -49,7 +48,9 @@ defmodule Bandera.Dashboard.SimilarityTest do
     end
 
     test "genuinely different flags with low jaro distance are excluded" do
-      # jaro_distance("flag_v1", "flag_v2") ~= 0.905, which is < 0.95
+      # Verify these are actually below threshold to make the test self-documenting
+      score = String.jaro_distance("flag_v1", "flag_v2")
+      assert score < 0.95
       pairs = Similarity.similar_pairs([:flag_v1, :flag_v2])
       assert pairs == []
     end
