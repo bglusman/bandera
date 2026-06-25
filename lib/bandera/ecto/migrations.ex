@@ -114,11 +114,82 @@ if Code.ensure_loaded?(Ecto.Migration) do
       :ok
     end
 
+    @doc """
+    Creates the usage table for durable stale-flag detection.
+
+    Call from the `up/0` of your own migration:
+
+        defmodule MyApp.Repo.Migrations.CreateBanderaUsage do
+          use Ecto.Migration
+          def up, do: Bandera.Ecto.Migrations.up_usage()
+          def down, do: Bandera.Ecto.Migrations.down_usage()
+        end
+
+    The table stores one row per flag — the timestamp it was last evaluated
+    anywhere in the fleet. `Bandera.Usage` flushes to this table periodically
+    (default every 10 minutes) and seeds ETS from it at startup.
+    """
+    @spec up_usage() :: :ok
+    def up_usage do
+      table_name = usage_table_name()
+
+      create_if_not_exists table(table_name, primary_key: false) do
+        add(:flag_name, :string, primary_key: true, null: false)
+        add(:last_evaluated_at, :utc_datetime_usec, null: false)
+      end
+
+      :ok
+    end
+
+    @doc "Drops the usage table."
+    @spec down_usage() :: :ok
+    def down_usage do
+      drop(table(usage_table_name()))
+      :ok
+    end
+
+    @doc """
+    Adds an `inserted_at` column to the flags table so you can see when each
+    flag/gate row was first created.
+
+    Call from a versioned migration in an existing install:
+
+        defmodule MyApp.Repo.Migrations.AddBanderaFlagsInsertedAt do
+          use Ecto.Migration
+          def up, do: Bandera.Ecto.Migrations.add_flags_inserted_at()
+          def down, do: Bandera.Ecto.Migrations.remove_flags_inserted_at()
+        end
+    """
+    @spec add_flags_inserted_at() :: :ok
+    def add_flags_inserted_at do
+      alter table(Bandera.Config.ecto_table_name()) do
+        add(:inserted_at, :utc_datetime_usec)
+      end
+
+      :ok
+    end
+
+    @doc "Removes the `inserted_at` column from the flags table."
+    @spec remove_flags_inserted_at() :: :ok
+    def remove_flags_inserted_at do
+      alter table(Bandera.Config.ecto_table_name()) do
+        remove(:inserted_at, :utc_datetime_usec)
+      end
+
+      :ok
+    end
+
     @doc "Drops the flags table. Call from the `down/0` of your own migration."
     @spec down() :: :ok
     def down do
       drop(table(Bandera.Config.ecto_table_name()))
       :ok
+    end
+
+    defp usage_table_name do
+      :bandera
+      |> Application.get_env(:persistence, [])
+      |> Keyword.get(:usage_table_name, "bandera_usage")
     end
   end
 end
