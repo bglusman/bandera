@@ -3,17 +3,18 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
     @moduledoc """
     Durable DB backend for `Bandera.Usage`.
 
-    Called by `Bandera.Usage` at startup (to seed ETS from the DB) and
-    periodically (to flush dirty ETS entries back to the DB), so evaluation
-    history survives process restarts and pod recycling.
+    Called by `Bandera.Usage` to seed ETS from the DB once the Repo is up, and
+    periodically to flush the whole ETS table back, so evaluation history
+    survives process restarts and pod recycling.
 
-    Only rows marked dirty since the last flush are written — those timestamps
-    are always newer than whatever is in the DB, so multi-pod writes never
-    regress a timestamp.
+    The flush is last-writer-wins: across multiple pods the DB row for a flag
+    ends up holding whichever pod's value was written most recently. At 30-day
+    stale-detection granularity that ~flush-interval skew is irrelevant, and on
+    startup every pod re-seeds from the DB and keeps the newer of (DB, in-memory),
+    so values only ever move forward in practice.
 
-    The table is separate from the flags table — create it via:
-
-        Bandera.Ecto.Migrations.up_usage()
+    The table is separate from the flags table — create it via
+    `Bandera.Ecto.Migrations.up_usage/0`.
 
     Only active when `persistence: [adapter: Bandera.Store.Persistent.Ecto]`
     is configured.  All functions silently no-op on any DB error so ETS-only
@@ -52,25 +53,16 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
     end
 
     @doc """
-    Upserts rows for `dirty_flags` (a `MapSet` of atom flag names) from
-    `ets_table` into the DB, replacing `last_evaluated_at`.
-
-    Because only dirty entries are flushed — those written since the last DB
-    load or flush — their timestamps are always >= what is in the DB, so
-    `{:replace, [:last_evaluated_at]}` is safe across pods.
+    Upserts every `{flag_name, datetime}` pair in `ets_table` into the DB,
+    replacing `last_evaluated_at` (last-writer-wins).
     """
-    @spec flush_dirty(atom, MapSet.t()) :: :ok
-    def flush_dirty(_ets_table, dirty) when map_size(dirty) == 0, do: :ok
-
-    def flush_dirty(ets_table, dirty) do
+    @spec flush_all(atom) :: :ok
+    def flush_all(ets_table) do
       rows =
-        dirty
-        |> MapSet.to_list()
-        |> Enum.flat_map(fn name ->
-          case :ets.lookup(ets_table, name) do
-            [{^name, at}] -> [%{flag_name: to_string(name), last_evaluated_at: at}]
-            [] -> []
-          end
+        ets_table
+        |> :ets.tab2list()
+        |> Enum.map(fn {name, at} ->
+          %{flag_name: to_string(name), last_evaluated_at: at}
         end)
 
       unless rows == [] do

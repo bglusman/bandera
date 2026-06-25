@@ -1,25 +1,31 @@
 if Code.ensure_loaded?(Ecto.Migration) do
   defmodule Bandera.Ecto.Migrations do
     @moduledoc """
-    Helpers for creating the Bandera flags table. Call from your own migration:
+    Helpers for creating Bandera's tables. Call from your own migration:
 
-        defmodule MyApp.Repo.Migrations.CreateBanderaFlags do
+        defmodule MyApp.Repo.Migrations.CreateBandera do
           use Ecto.Migration
           def up, do: Bandera.Ecto.Migrations.up()
           def down, do: Bandera.Ecto.Migrations.down()
         end
 
-    The table name is read at runtime from `config :bandera, persistence: [ecto_table_name: ...]`
-    (default `"bandera_flags"`), so it is never fixed at compile time.
+    `up/0` creates both the flags table and the usage table (for stale-flag
+    detection). Existing installs that already have the flags table can add just
+    the usage table via `up_usage/0` from a new migration.
+
+    Table names are read at runtime from `config :bandera, persistence: [...]`
+    (`ecto_table_name`, default `"bandera_flags"`; `usage_table_name`, default
+    `"bandera_usage"`), so they are never fixed at compile time.
     """
 
     import Ecto.Migration
 
     @doc """
-    Creates the flags table and its unique index (idempotently).
+    Creates the flags table (and its index) plus the usage table, idempotently.
 
-    Call from the `up/0` of your own migration. The table name is read at runtime
-    from `Bandera.Config.ecto_table_name/0`.
+    Call from the `up/0` of your own migration. Table names are read at runtime
+    from `Bandera.Config`. New installs get everything in one migration; uses
+    `create_if_not_exists` throughout so it is safe on all SQL backends.
     """
     @spec up() :: :ok
     def up do
@@ -38,6 +44,8 @@ if Code.ensure_loaded?(Ecto.Migration) do
           name: :"#{table_name}_flag_name_gate_target_idx"
         )
       )
+
+      up_usage()
 
       :ok
     end
@@ -115,9 +123,11 @@ if Code.ensure_loaded?(Ecto.Migration) do
     end
 
     @doc """
-    Creates the usage table for durable stale-flag detection.
+    Creates the usage table for durable stale-flag detection (idempotently).
 
-    Call from the `up/0` of your own migration:
+    New installs get this automatically via `up/0`. Existing Bandera installs
+    should call it from a separate migration to add the table without touching
+    the flags table:
 
         defmodule MyApp.Repo.Migrations.CreateBanderaUsage do
           use Ecto.Migration
@@ -149,39 +159,12 @@ if Code.ensure_loaded?(Ecto.Migration) do
     end
 
     @doc """
-    Adds an `inserted_at` column to the flags table so you can see when each
-    flag/gate row was first created.
-
-    Call from a versioned migration in an existing install:
-
-        defmodule MyApp.Repo.Migrations.AddBanderaFlagsInsertedAt do
-          use Ecto.Migration
-          def up, do: Bandera.Ecto.Migrations.add_flags_inserted_at()
-          def down, do: Bandera.Ecto.Migrations.remove_flags_inserted_at()
-        end
+    Drops the flags table and the usage table. Call from the `down/0` of your
+    own migration.
     """
-    @spec add_flags_inserted_at() :: :ok
-    def add_flags_inserted_at do
-      alter table(Bandera.Config.ecto_table_name()) do
-        add(:inserted_at, :utc_datetime_usec)
-      end
-
-      :ok
-    end
-
-    @doc "Removes the `inserted_at` column from the flags table."
-    @spec remove_flags_inserted_at() :: :ok
-    def remove_flags_inserted_at do
-      alter table(Bandera.Config.ecto_table_name()) do
-        remove(:inserted_at, :utc_datetime_usec)
-      end
-
-      :ok
-    end
-
-    @doc "Drops the flags table. Call from the `down/0` of your own migration."
     @spec down() :: :ok
     def down do
+      down_usage()
       drop(table(Bandera.Config.ecto_table_name()))
       :ok
     end

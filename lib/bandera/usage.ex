@@ -6,8 +6,11 @@ defmodule Bandera.Usage do
 
   When the Ecto persistence adapter is configured, evaluation history is also
   persisted to a `bandera_usage` DB table so it survives restarts and pod
-  recycling. The DB is seeded into ETS at startup and flushed back every
-  `flush_interval` seconds (default 600 / 10 minutes).
+  recycling. The DB is seeded into ETS once the Repo is available, and the whole
+  ETS table is flushed back every `flush_interval` seconds (default 600 / 10
+  minutes). At 30-day stale granularity the flush cadence is irrelevant, so the
+  flush is a simple last-writer-wins upsert — no per-write bookkeeping on the
+  hot path.
 
   Add to your supervision tree and call `Bandera.Usage.attach/0` once at boot:
 
@@ -58,7 +61,7 @@ defmodule Bandera.Usage do
     end
   end
 
-  @doc "Immediately flushes dirty entries to the DB. Useful in tests and clean shutdowns."
+  @doc "Immediately flushes ETS to the DB. Useful in tests and clean shutdowns."
   @spec flush() :: :ok
   def flush, do: GenServer.call(__MODULE__, :flush)
 
@@ -67,9 +70,9 @@ defmodule Bandera.Usage do
   @doc false
   @spec handle_event(list, map, map, term) :: :ok
   def handle_event([:bandera, _event], _measurements, %{flag_name: flag_name}, _config) do
-    # Never raise: :telemetry would detach us on error, silently stopping tracking.
+    # Hot path: a single ETS write, nothing else. Never raise — :telemetry would
+    # detach us on error, silently stopping tracking.
     :ets.insert(@table, {flag_name, DateTime.utc_now()})
-    notify_dirty(flag_name)
     :ok
   rescue
     _ -> :ok
@@ -82,10 +85,12 @@ defmodule Bandera.Usage do
     :ets.new(@table, [:named_table, :public, :set, write_concurrency: true])
 
     interval = flush_interval(opts)
-    state = %{dirty: MapSet.new(), flush_interval: interval}
+    # `loaded?` tracks whether we have seeded ETS from the DB yet. We may start
+    # before the host Repo (umbrella boot order), so seeding is retried on each
+    # flush tick until it succeeds rather than assumed to work at init.
+    state = %{flush_interval: interval, loaded?: false}
 
-    # Seed ETS from DB (if Ecto adapter is configured), then schedule first flush.
-    maybe_load_from_db()
+    state = maybe_load_from_db(state)
     schedule_flush(interval)
 
     {:ok, state}
@@ -93,50 +98,56 @@ defmodule Bandera.Usage do
 
   @impl true
   def handle_call(:flush, _from, state) do
-    maybe_flush_to_db(state.dirty)
-    {:reply, :ok, %{state | dirty: MapSet.new()}}
-  end
-
-  @impl true
-  def handle_cast({:dirty, flag_name}, state) do
-    {:noreply, %{state | dirty: MapSet.put(state.dirty, flag_name)}}
+    state = maybe_load_from_db(state)
+    flush_to_db()
+    {:reply, :ok, state}
   end
 
   @impl true
   def handle_info(:flush, state) do
-    maybe_flush_to_db(state.dirty)
+    # Keep trying to seed from the DB until it sticks (Repo may boot after us).
+    state = maybe_load_from_db(state)
+    flush_to_db()
     schedule_flush(state.flush_interval)
-    {:noreply, %{state | dirty: MapSet.new()}}
+    {:noreply, state}
   end
 
   # ── Private helpers ─────────────────────────────────────────────────────────
 
-  defp notify_dirty(flag_name) do
-    case Process.whereis(__MODULE__) do
-      nil -> :ok
-      pid -> GenServer.cast(pid, {:dirty, flag_name})
-    end
-  end
-
   defp schedule_flush(interval),
     do: Process.send_after(self(), :flush, interval * 1_000)
 
-  defp ecto_adapter? do
-    Config.persistence_adapter() == Bandera.Store.Persistent.Ecto
+  defp db_enabled? do
+    Config.persistence_adapter() == Bandera.Store.Persistent.Ecto and
+      Code.ensure_loaded?(Bandera.Usage.Ecto) and repo_alive?()
   rescue
     _ -> false
   end
 
-  defp maybe_load_from_db do
-    if ecto_adapter?() and Code.ensure_loaded?(Bandera.Usage.Ecto) do
+  defp repo_alive? do
+    case Keyword.get(Config.persistence(), :repo) do
+      nil -> false
+      repo -> is_pid(GenServer.whereis(repo))
+    end
+  rescue
+    _ -> false
+  end
+
+  # Seed ETS from the DB exactly once, once the Repo is up. No-ops if already
+  # loaded or if the DB isn't available yet (retried on the next flush tick).
+  defp maybe_load_from_db(%{loaded?: true} = state), do: state
+
+  defp maybe_load_from_db(state) do
+    if db_enabled?() do
       Bandera.Usage.Ecto.load_into_ets(@table)
+      %{state | loaded?: true}
+    else
+      state
     end
   end
 
-  defp maybe_flush_to_db(dirty) do
-    if ecto_adapter?() and Code.ensure_loaded?(Bandera.Usage.Ecto) do
-      Bandera.Usage.Ecto.flush_dirty(@table, dirty)
-    end
+  defp flush_to_db do
+    if db_enabled?(), do: Bandera.Usage.Ecto.flush_all(@table)
   end
 
   defp flush_interval(opts) do

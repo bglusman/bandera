@@ -40,6 +40,28 @@ defmodule Bandera.Ecto.MigrationsTest do
     assert "value" in column_names("bandera_flags")
   end
 
+  test "up/0 also created the usage table (new-install path)" do
+    %{rows: rows} =
+      Bandera.TestRepo.query!("SELECT flag_name, last_evaluated_at FROM bandera_usage")
+
+    assert rows == []
+  end
+
+  test "up_usage/0 is idempotent (safe to re-run on an existing install)" do
+    # The table already exists from the suite's migration; re-running must not raise.
+    defmodule UsageMigration do
+      use Ecto.Migration
+      def up, do: Bandera.Ecto.Migrations.up_usage()
+    end
+
+    assert :ok =
+             Ecto.Migrator.up(Bandera.TestRepo, 20_260_701_000_000, UsageMigration, log: false)
+
+    on_exit(fn ->
+      Bandera.TestRepo.query!("DELETE FROM schema_migrations WHERE version = 20260701000000")
+    end)
+  end
+
   test "upgrade_v2/0 adds the value column to an existing v1 table" do
     table = "bandera_flags_v1_upgrade_test"
 
