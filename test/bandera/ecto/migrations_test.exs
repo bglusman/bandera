@@ -10,6 +10,7 @@ defmodule Bandera.Ecto.MigrationsTest do
 
   setup do
     Bandera.TestRepo.query!("DELETE FROM bandera_flags")
+    Bandera.TestRepo.query!("DELETE FROM bandera_usage")
     :ok
   end
 

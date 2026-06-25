@@ -12,16 +12,14 @@ defmodule Bandera.Usage do
   flush is a simple last-writer-wins upsert — no per-write bookkeeping on the
   hot path.
 
-  Add to your supervision tree and call `Bandera.Usage.attach/0` once at boot:
+  Just add it to your supervision tree — it attaches its own telemetry handler in
+  `init/1` and detaches on shutdown, so the handler's lifecycle follows the
+  process (a crash-and-restart re-attaches against a fresh ETS table):
 
       children = [
         ...,
         Bandera.Usage
       ]
-
-  Then in your application `start/2`:
-
-      :ok = Bandera.Usage.attach()
 
   Create the usage table with `Bandera.Ecto.Migrations.up_usage/0` from a
   migration before enabling DB persistence.
@@ -42,13 +40,18 @@ defmodule Bandera.Usage do
   def start_link(opts \\ []),
     do: GenServer.start_link(__MODULE__, opts, Keyword.put_new(opts, :name, __MODULE__))
 
-  @doc "Registers the telemetry handler. Call once after the supervisor starts."
+  @doc """
+  Registers the telemetry handler.
+
+  Called automatically from the GenServer's `init/1`; you do not need to call it
+  yourself. Exposed mainly for tests.
+  """
   @spec attach() :: :ok | {:error, :already_exists}
   def attach do
     :telemetry.attach_many(@handler, @events, &__MODULE__.handle_event/4, nil)
   end
 
-  @doc "Unregisters the telemetry handler."
+  @doc "Unregisters the telemetry handler. Called automatically on shutdown."
   @spec detach() :: :ok | {:error, :not_found}
   def detach, do: :telemetry.detach(@handler)
 
@@ -82,7 +85,18 @@ defmodule Bandera.Usage do
 
   @impl true
   def init(opts) do
+    # Trap exits so terminate/2 runs on supervisor shutdown — a final flush plus
+    # detach, keeping the handler's lifecycle tied to this process.
+    Process.flag(:trap_exit, true)
+
     :ets.new(@table, [:named_table, :public, :set, write_concurrency: true])
+
+    # Attach the telemetry handler here (not from the host application) so that a
+    # crash-and-restart re-registers it against the fresh ETS table this init
+    # creates. attach/0 is idempotent: a stale handler from a prior incarnation is
+    # detached first so the re-attach always succeeds.
+    detach()
+    attach()
 
     interval = flush_interval(opts)
     # `loaded?` tracks whether we have seeded ETS from the DB yet. We may start
@@ -94,6 +108,17 @@ defmodule Bandera.Usage do
     schedule_flush(interval)
 
     {:ok, state}
+  end
+
+  @impl true
+  def terminate(_reason, _state) do
+    # Best-effort: detach the handler (its ETS table is about to vanish) and flush
+    # what we have so a clean shutdown doesn't lose up to a full interval of data.
+    detach()
+    flush_to_db()
+    :ok
+  rescue
+    _ -> :ok
   end
 
   @impl true

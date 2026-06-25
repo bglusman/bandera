@@ -524,8 +524,6 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
 
   test "stale flag shows ⚠ icon when Usage is running and flag is stale", %{conn: conn} do
     start_supervised!(Bandera.Usage)
-    Bandera.Usage.attach()
-    on_exit(fn -> Bandera.Usage.detach() end)
     {:ok, true} = Bandera.enable(:billing_invoices)
     old_time = DateTime.add(DateTime.utc_now(), -40 * 86_400, :second)
     :ets.insert(Bandera.Usage, {:billing_invoices, old_time})

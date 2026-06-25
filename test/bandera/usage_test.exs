@@ -11,11 +11,10 @@ defmodule Bandera.UsageTest do
     Application.put_env(:bandera, :persistence, adapter: Memory)
     Application.put_env(:bandera, :store, Bandera.Store.TwoLevel)
     Bandera.reload_config()
+    # Usage self-attaches its telemetry handler in init/1 and detaches on shutdown.
     start_supervised!(Usage)
-    :ok = Usage.attach()
 
     on_exit(fn ->
-      Usage.detach()
       Application.delete_env(:bandera, :cache)
       Application.delete_env(:bandera, :persistence)
       Application.delete_env(:bandera, :store)
@@ -35,6 +34,44 @@ defmodule Bandera.UsageTest do
     })
 
     assert %DateTime{} = Usage.last_evaluated(:checked)
+  end
+
+  test "re-attaches its telemetry handler after a crash and restart" do
+    # Confirm tracking works before the crash.
+    :telemetry.execute([:bandera, :enabled?], %{system_time: 1}, %{
+      flag_name: :pre_crash,
+      options: [],
+      result: false
+    })
+
+    assert %DateTime{} = Usage.last_evaluated(:pre_crash)
+
+    # Kill the GenServer; start_supervised restarts it, re-running init/1 (which
+    # re-attaches the handler against a fresh ETS table).
+    pid = Process.whereis(Usage)
+    ref = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^pid, _}, 1_000
+
+    # Wait for the supervisor to bring it back.
+    wait_until(fn ->
+      case Process.whereis(Usage) do
+        nil -> false
+        new_pid -> new_pid != pid and Process.alive?(new_pid)
+      end
+    end)
+
+    # The fresh table starts empty, and a new evaluation is still recorded —
+    # proving the handler survived the restart.
+    refute Usage.last_evaluated(:pre_crash)
+
+    :telemetry.execute([:bandera, :enabled?], %{system_time: 1}, %{
+      flag_name: :post_crash,
+      options: [],
+      result: false
+    })
+
+    assert %DateTime{} = Usage.last_evaluated(:post_crash)
   end
 
   test "records usage through a real Bandera.enabled?/2 call" do
@@ -96,5 +133,21 @@ defmodule Bandera.UsageTest do
       capture_io(fn -> Mix.Tasks.Bandera.Flags.run(["--stale", "--older-than", "30"]) end)
 
     assert output =~ "old"
+  end
+
+  # Polls `fun` until it returns true, raising after `timeout` ms. Used to wait on
+  # the supervisor's asynchronous restart without a fixed sleep.
+  defp wait_until(fun, timeout \\ 1_000, interval \\ 10) do
+    cond do
+      fun.() ->
+        :ok
+
+      timeout <= 0 ->
+        flunk("wait_until timed out")
+
+      true ->
+        Process.sleep(interval)
+        wait_until(fun, timeout - interval, interval)
+    end
   end
 end

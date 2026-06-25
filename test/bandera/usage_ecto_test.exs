@@ -31,8 +31,6 @@ defmodule Bandera.UsageEctoTest do
 
   test "flush/0 writes ETS entries to the DB" do
     start_supervised!({Usage, flush_interval: 3600})
-    :ok = Usage.attach()
-    on_exit(fn -> Usage.detach() end)
 
     Bandera.TestRepo.query!(
       "INSERT INTO bandera_flags (flag_name, gate_type, target, enabled) VALUES ('flush_flag', 'boolean', '_bandera_none', 1)"
