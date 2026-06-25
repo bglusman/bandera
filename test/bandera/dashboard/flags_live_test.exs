@@ -111,6 +111,63 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     refute html =~ ">beta<"
   end
 
+  test "toggle_actor_gate flips an actor gate between grant and deny", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, true} = Bandera.enable(:billing_invoices, for_actor: "user-1")
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    assert Bandera.enabled?(:billing_invoices, for: "user-1")
+
+    # Toggle to deny — gate stays, but flips to disabled.
+    _ =
+      render_click(live, "toggle_actor_gate", %{"flag" => "billing_invoices", "actor" => "user-1"})
+
+    refute Bandera.enabled?(:billing_invoices, for: "user-1")
+    assert actor_gate(:billing_invoices, "user-1").enabled == false
+
+    # Toggle back to grant.
+    _ =
+      render_click(live, "toggle_actor_gate", %{"flag" => "billing_invoices", "actor" => "user-1"})
+
+    assert Bandera.enabled?(:billing_invoices, for: "user-1")
+    assert actor_gate(:billing_invoices, "user-1").enabled == true
+  end
+
+  test "toggle_group_gate flips a group gate between grant and deny", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices, for_group: "beta")
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    assert Bandera.enabled?(:billing_invoices, for: %{id: 1, groups: [:beta]})
+
+    _ =
+      render_click(live, "toggle_group_gate", %{"flag" => "billing_invoices", "group" => "beta"})
+
+    refute Bandera.enabled?(:billing_invoices, for: %{id: 1, groups: [:beta]})
+    assert group_gate(:billing_invoices, "beta").enabled == false
+
+    _ =
+      render_click(live, "toggle_group_gate", %{"flag" => "billing_invoices", "group" => "beta"})
+
+    assert Bandera.enabled?(:billing_invoices, for: %{id: 1, groups: [:beta]})
+    assert group_gate(:billing_invoices, "beta").enabled == true
+  end
+
+  test "a denied group gate renders with the off toggle and survives a clear", %{conn: conn} do
+    {:ok, _} = Bandera.disable(:billing_invoices, for_group: "beta")
+    {:ok, live, _html} = live(conn, "/flags")
+    html = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    # The deny gate is listed (not hidden) and its toggle reads "off".
+    assert html =~ "beta"
+    assert group_gate(:billing_invoices, "beta").enabled == false
+
+    # remove still clears the gate entirely.
+    _ = render_click(live, "remove_group", %{"flag" => "billing_invoices", "group" => "beta"})
+    assert group_gate(:billing_invoices, "beta") == nil
+  end
+
   test "set and clear a percentage gate, with validation", %{conn: conn} do
     {:ok, true} = Bandera.enable(:billing_invoices)
     {:ok, live, _html} = live(conn, "/flags")
@@ -714,5 +771,16 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     )
 
     assert render(live) =~ "promo_banner"
+  end
+
+  defp actor_gate(flag_name, target), do: find_gate(flag_name, :actor, target)
+  defp group_gate(flag_name, target), do: find_gate(flag_name, :group, target)
+
+  defp find_gate(flag_name, type, target) do
+    {:ok, flag} = Bandera.get_flag(flag_name)
+
+    Enum.find(flag.gates, fn g ->
+      g.type == type and to_string(g.for) == to_string(target)
+    end)
   end
 end

@@ -156,6 +156,13 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       border-radius: var(--bandera-radius-sm, 8px);
     }
     .bandera-icon-hint { font-size: 13px; margin-left: 6px; cursor: default; }
+    .bandera-hint {
+      font-size: 12px; line-height: 1.5;
+      color: var(--bandera-muted, #64748b);
+      background: var(--bandera-hint-bg, #f8fafc);
+      border-radius: var(--bandera-radius-sm, 8px);
+      padding: 8px 10px; margin-bottom: 10px;
+    }
     .bandera-full-name {
       font-size: 11px; font-weight: 400;
       color: var(--bandera-muted, #94a3b8);
@@ -395,11 +402,26 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     @spec flag_editor(map()) :: Phoenix.LiveView.Rendered.t()
     def flag_editor(assigns) do
       ~H"""
+      <div class={Theme.class(@theme, :hint)}>
+        <strong>How gates combine:</strong>
+        An actor setting always wins over a group setting (a user turned <em>on</em>
+        individually stays on even if their group is <em>off</em>). Among groups,
+        <em>on</em> beats <em>off</em> — a user in any allowed group is in.
+        Use the on/off toggles to grant or deny without removing the gate.
+      </div>
+
       <fieldset class={Theme.class(@theme, :fieldset)}>
         <legend class={Theme.class(@theme, :legend)}>Actors</legend>
         <ul class={Theme.class(@theme, :gate_list)}>
-          <li :for={id <- actor_targets(@flag)} class={Theme.class(@theme, :gate_item)}>
+          <li :for={{id, enabled} <- actor_targets(@flag)} class={Theme.class(@theme, :gate_item)}>
             <code>{id}</code>
+            <button
+              type="button"
+              class={Theme.class(@theme, if(enabled, do: :toggle_on, else: :toggle_off))}
+              phx-click="toggle_actor_gate"
+              phx-value-flag={@flag.name}
+              phx-value-actor={id}
+            >{if enabled, do: "on", else: "off"}</button>
             <button
               type="button"
               class={Theme.class(@theme, :danger_button)}
@@ -425,8 +447,15 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       <fieldset class={Theme.class(@theme, :fieldset)}>
         <legend class={Theme.class(@theme, :legend)}>Groups</legend>
         <ul class={Theme.class(@theme, :gate_list)}>
-          <li :for={name <- group_targets(@flag)} class={Theme.class(@theme, :gate_item)}>
+          <li :for={{name, enabled} <- group_targets(@flag)} class={Theme.class(@theme, :gate_item)}>
             <code>{name}</code>
+            <button
+              type="button"
+              class={Theme.class(@theme, if(enabled, do: :toggle_on, else: :toggle_off))}
+              phx-click="toggle_group_gate"
+              phx-value-flag={@flag.name}
+              phx-value-group={name}
+            >{if enabled, do: "on", else: "off"}</button>
             <button
               type="button"
               class={Theme.class(@theme, :danger_button)}
@@ -650,11 +679,11 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     end
 
     defp actor_targets(flag) do
-      for g <- flag.gates, Bandera.Gate.actor?(g), do: g.for
+      for(g <- flag.gates, Bandera.Gate.actor?(g), do: {g.for, g.enabled}) |> Enum.sort()
     end
 
     defp group_targets(flag) do
-      for g <- flag.gates, Bandera.Gate.group?(g), do: g.for
+      for(g <- flag.gates, Bandera.Gate.group?(g), do: {g.for, g.enabled}) |> Enum.sort()
     end
 
     defp segment_targets(flag), do: for(g <- flag.gates, Bandera.Gate.segment?(g), do: g.for)

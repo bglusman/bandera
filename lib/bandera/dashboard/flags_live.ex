@@ -352,6 +352,16 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
     end
 
+    def handle_event("toggle_actor_gate", %{"flag" => name, "actor" => actor}, socket) do
+      flag_name = String.to_existing_atom(name)
+
+      if gate_enabled?(socket, name, :actor, actor),
+        do: Bandera.disable(flag_name, for_actor: actor),
+        else: Bandera.enable(flag_name, for_actor: actor)
+
+      {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
+    end
+
     def handle_event("group_input", %{"flag" => name, "group" => group}, socket) do
       {:noreply, update(socket, :group_drafts, &Map.put(&1, name, group))}
     end
@@ -374,6 +384,16 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
     def handle_event("remove_group", %{"flag" => name, "group" => group}, socket) do
       Bandera.clear(String.to_existing_atom(name), for_group: group)
+      {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
+    end
+
+    def handle_event("toggle_group_gate", %{"flag" => name, "group" => group}, socket) do
+      flag_name = String.to_existing_atom(name)
+
+      if gate_enabled?(socket, name, :group, group),
+        do: Bandera.disable(flag_name, for_group: group),
+        else: Bandera.enable(flag_name, for_group: group)
+
       {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
     end
 
@@ -748,6 +768,17 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     defp currently_on?(socket, name) do
       Enum.any?(socket.assigns.all_flags, fn flag ->
         to_string(flag.name) == name and boolean_on?(flag)
+      end)
+    end
+
+    # Whether the actor/group gate for `target` on flag `name` is currently a
+    # grant (true) vs a deny (false/absent). Used to decide which way to toggle.
+    defp gate_enabled?(socket, name, type, target) do
+      Enum.any?(socket.assigns.all_flags, fn flag ->
+        to_string(flag.name) == name and
+          Enum.any?(flag.gates, fn g ->
+            g.type == type and to_string(g.for) == to_string(target) and g.enabled
+          end)
       end)
     end
 
