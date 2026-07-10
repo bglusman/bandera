@@ -16,7 +16,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     Passes `older_than` (days, default 30) to `Bandera.stale_flags/1`.
     Returns an empty MapSet if Usage is not running.
     """
-    @spec stale_set(keyword) :: MapSet.t(atom)
+    @spec stale_set(keyword) :: MapSet.t()
     def stale_set(opts \\ []) do
       if usage_available?() do
         days = Keyword.get(opts, :older_than, config_older_than())
