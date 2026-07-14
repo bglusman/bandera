@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-14
+
+### Added
+
+- Dashboard: grant/deny toggle for actor and group gates in expanded flag rows.
+- `Bandera.Usage` now self-attaches its telemetry handler on `init/1` and
+  detaches on `terminate/2` — no manual `attach/0` call is needed at boot.
+- Usage history is persisted to the database so stale-flag detection survives
+  node restarts.
+- `auto_create: true` config option: when `enabled?` is called for an unknown
+  flag, Bandera creates it as disabled rather than failing. Store errors during
+  auto-create are logged instead of silently dropped.
+- `Bandera.Dashboard.Similarity`: pure helper that detects flag names that look
+  like potential duplicates (edit-distance / prefix heuristics).
+- Dashboard: similarity-warning section surfaces potentially duplicate flag
+  names using `Bandera.Dashboard.Similarity`.
+- Dashboard: Create Flag form with name validation and a length cap.
+- Dashboard: sortable table view with inline gate editor.
+- Dashboard: card view icons, full-name subtitle, and stale indicator per flag.
+- Dashboard: `handle_params`-driven view/grouped/sort state; new theme roles for
+  table controls (`Bandera.Dashboard.Theme`).
+- `Bandera.Dashboard.Stale`: isolated helper module for stale-detection logic.
+
+### Changed
+
+- Usage persistence simplified: dirty-tracking and the `inserted_at` column have
+  been dropped.
+
+### Fixed
+
+- Boolean gate `put/2` now upserts atomically under concurrent writes —
+  eliminates a race where two simultaneous toggles could leave the gate
+  inconsistent.
+- `Bandera.Usage`: corrected Dialyzer contract for the `set` callback.
+- Stale detection: flags the tracker has never observed are not considered stale
+  until the tracker itself has been running long enough to have seen them.
+- Dashboard nav links resolve correctly when the router is mounted at a path
+  other than `/flags`.
+
 ## [0.4.0] - 2026-06-01
 
 ### Added
@@ -127,7 +166,8 @@ Initial release.
   NimbleOwnership.
 - `:telemetry` events for reads, writes, and the persistence layer.
 
-[Unreleased]: https://github.com/ch4s3/bandera/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ch4s3/bandera/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/ch4s3/bandera/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ch4s3/bandera/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ch4s3/bandera/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ch4s3/bandera/compare/v0.1.0...v0.2.0
