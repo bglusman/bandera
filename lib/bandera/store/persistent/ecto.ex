@@ -75,21 +75,38 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
 
     @impl Bandera.Store.Persistent
     def put(flag_name, %Gate{type: :boolean} = gate) do
-      # Delete any existing boolean row first — regardless of the `target` value
-      # stored there. Without this, migrating from FunWithFlags (which used
-      # `target = "boolean"`) leaves a stale row alongside Bandera's
-      # `target = "_bandera_none"` row, because the upsert conflict target is
-      # `[:flag_name, :gate_type, :target]` and the two targets differ.
+      # A boolean gate always writes the `"_bandera_none"` sentinel target, so the
+      # write itself is a plain conflict-target upsert — identical to the generic
+      # `put/2` below and, crucially, atomic under concurrent toggles. The earlier
+      # implementation did an unconditional `delete_all` + bare `insert_all`, which
+      # is NOT atomic: two concurrent boolean writes to the same flag can both
+      # delete, then both insert, and the second insert violates the
+      # `(flag_name, gate_type, target)` unique index (Postgres 23505). The upsert
+      # collapses that race into a harmless replace.
+      #
+      # We still clear any *legacy* FunWithFlags boolean rows (which used a
+      # non-sentinel `target`, e.g. `"boolean"`), because those live at a different
+      # target and so are invisible to the upsert's conflict target. This delete is
+      # scoped to `target != sentinel`, so it never touches the row the upsert
+      # manages and is therefore not part of the racy path. (The one-shot
+      # `Bandera.Ecto.Migrations.fix_fun_with_flags_boolean_gates/0` migration
+      # handles the same cleanup in bulk; this keeps runtime writes correct even if
+      # that migration has not been run yet.)
       name = to_string(flag_name)
+      sentinel = Serializer.serialize_target(nil)
       row = Serializer.to_row(flag_name, gate)
 
       repo().delete_all(
         from(r in {table(), Record},
-          where: r.flag_name == ^name and r.gate_type == "boolean"
+          where: r.flag_name == ^name and r.gate_type == "boolean" and r.target != ^sentinel
         )
       )
 
-      repo().insert_all({table(), Record}, [row])
+      repo().insert_all({table(), Record}, [row],
+        on_conflict: {:replace, [:enabled, :value]},
+        conflict_target: [:flag_name, :gate_type, :target]
+      )
+
       get(flag_name)
     end
 

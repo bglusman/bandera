@@ -6,8 +6,6 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     import Bandera.Dashboard.Components
     alias Bandera.Dashboard.Theme
 
-    @constraint_operators ~w(eq neq in not_in contains gt gte lt lte matches)a
-
     @impl true
     def mount(_params, _session, socket) do
       if connected?(socket), do: subscribe_to_changes()
@@ -21,11 +19,40 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           actor_drafts: %{},
           group_drafts: %{},
           theme: Bandera.Config.theme(),
-          flash_error: nil
+          flash_error: nil,
+          view: :cards,
+          grouped: true,
+          sort: :name,
+          sort_dir: :asc,
+          stale_set: Bandera.Dashboard.Stale.stale_set(),
+          usage_available: Bandera.Dashboard.Stale.usage_available?(),
+          create_error: nil,
+          similar_pairs: [],
+          base_path: "/"
         )
         |> load_flags()
 
       {:ok, socket}
+    end
+
+    @impl true
+    def handle_params(params, uri, socket) do
+      view = if params["view"] == "table", do: :table, else: :cards
+      grouped = params["grouped"] != "false"
+      sort = parse_sort(params["sort"])
+      sort_dir = if params["dir"] == "desc", do: :desc, else: :asc
+      base_path = URI.parse(uri).path
+
+      {:noreply,
+       socket
+       |> assign(
+         view: view,
+         grouped: grouped,
+         sort: sort,
+         sort_dir: sort_dir,
+         base_path: base_path
+       )
+       |> recompute_groups()}
     end
 
     @impl true
@@ -49,7 +76,47 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           />
         </form>
 
+        <form phx-submit="create_flag" class={Theme.class(@theme, :create_form)}>
+          <input
+            class={Theme.class(@theme, :input)}
+            type="text"
+            name="flag_name"
+            placeholder="new.flag.name"
+            autocomplete="off"
+          />
+          <button class={Theme.class(@theme, :primary_button)} type="submit">Create</button>
+        </form>
+        <div :if={@create_error} class={Theme.class(@theme, :flash)}>
+          {@create_error}
+        </div>
+
+        <.usage_warning :if={not @usage_available} theme={@theme} />
+
+        <.similarity_warning :if={@similar_pairs != []} pairs={@similar_pairs} theme={@theme} />
+
+        <div class={Theme.class(@theme, :view_controls)}>
+          <span>
+            <.link
+              patch={@base_path <> "?" <> URI.encode_query(%{"view" => "cards", "grouped" => to_string(@grouped)})}
+              class={Theme.class(@theme, if(@view == :cards, do: :view_toggle_active, else: :view_toggle_inactive))}
+            >Cards</.link>
+            <.link
+              patch={@base_path <> "?view=table"}
+              class={Theme.class(@theme, if(@view == :table, do: :view_toggle_active, else: :view_toggle_inactive))}
+            >Table</.link>
+          </span>
+          <.link
+            :if={@view == :cards}
+            patch={@base_path <> "?" <> URI.encode_query(%{"view" => "cards", "grouped" => to_string(not @grouped)})}
+            class={Theme.class(@theme, :grouping_toggle)}
+          >
+            {if @grouped, do: "[✓]", else: "[ ]"} Group by namespace
+          </.link>
+        </div>
+
+        <%!-- Grouped card view --%>
         <details
+          :if={@view == :cards and @grouped}
           :for={{group, members} <- @groups}
           class={Theme.class(@theme, :group)}
           open={not group_collapsed?(@collapsed_groups, group)}
@@ -65,8 +132,21 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           <div :for={{display, flag} <- members}>
             <div class={Theme.class(@theme, :row)}>
               <span>
-                <span class={Theme.class(@theme, :name)}>{display}</span>
+                <span class={Theme.class(@theme, :name)}>
+                  {display}
+                  <span
+                    :if={@grouped and display != to_string(flag.name)}
+                    class={Theme.class(@theme, :full_name)}
+                  >{flag.name}</span>
+                </span>
                 <.state_summary flag={flag} theme={@theme} />
+                <.stale_indicator
+                  :if={MapSet.member?(@stale_set, flag.name)}
+                  flag_name={flag.name}
+                  theme={@theme}
+                />
+                <span :if={has_schedule?(flag)} class={Theme.class(@theme, :icon_hint)} title="Has a schedule">📅</span>
+                <span :if={has_prerequisites?(flag)} class={Theme.class(@theme, :icon_hint)} title="Has prerequisites">🔗</span>
               </span>
               <span>
                 <button
@@ -87,10 +167,125 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
             </div>
 
             <div :if={expanded?(@expanded, flag)} class={Theme.class(@theme, :editor)}>
-              {render_editor(assigns, flag)}
+              <.flag_editor
+                flag={flag}
+                theme={@theme}
+                actor_drafts={@actor_drafts}
+                group_drafts={@group_drafts}
+                all_flags={@all_flags}
+              />
             </div>
           </div>
         </details>
+
+        <%!-- Flat (ungrouped) card view --%>
+        <div :if={@view == :cards and not @grouped}>
+          <div :for={{_group, members} <- @groups}>
+            <div :for={{display, flag} <- members}>
+              <div class={Theme.class(@theme, :row)}>
+                <span>
+                  <span class={Theme.class(@theme, :name)}>
+                    {display}
+                  </span>
+                  <.state_summary flag={flag} theme={@theme} />
+                  <.stale_indicator
+                    :if={MapSet.member?(@stale_set, flag.name)}
+                    flag_name={flag.name}
+                    theme={@theme}
+                  />
+                  <span :if={has_schedule?(flag)} class={Theme.class(@theme, :icon_hint)} title="Has a schedule">📅</span>
+                  <span :if={has_prerequisites?(flag)} class={Theme.class(@theme, :icon_hint)} title="Has prerequisites">🔗</span>
+                </span>
+                <span>
+                  <button
+                    type="button"
+                    class={Theme.class(@theme, toggle_role(flag))}
+                    phx-click="toggle_boolean"
+                    phx-value-flag={flag.name}
+                  >{if boolean_on?(flag), do: "on", else: "off"}</button>
+                  <button
+                    type="button"
+                    class={Theme.class(@theme, :icon_button)}
+                    phx-click="toggle_row"
+                    phx-value-flag={flag.name}
+                  >
+                    {if expanded?(@expanded, flag), do: "▴", else: "▾"}
+                  </button>
+                </span>
+              </div>
+
+              <div :if={expanded?(@expanded, flag)} class={Theme.class(@theme, :editor)}>
+                <.flag_editor
+                  flag={flag}
+                  theme={@theme}
+                  actor_drafts={@actor_drafts}
+                  group_drafts={@group_drafts}
+                  all_flags={@all_flags}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <%!-- Table view --%>
+        <table :if={@view == :table} class={Theme.class(@theme, :table)}>
+          <thead>
+            <tr>
+              <th
+                class={"#{Theme.class(@theme, :th)} bandera-th--sortable"}
+                phx-click="sort"
+                phx-value-col="name"
+              >Flag {sort_arrow(:name, @sort, @sort_dir)}</th>
+              <th
+                class={"#{Theme.class(@theme, :th)} bandera-th--sortable"}
+                phx-click="sort"
+                phx-value-col="state"
+              >State {sort_arrow(:state, @sort, @sort_dir)}</th>
+              <th
+                class={"#{Theme.class(@theme, :th)} bandera-th--sortable"}
+                phx-click="sort"
+                phx-value-col="last_evaluated"
+              >Last evaluated {sort_arrow(:last_evaluated, @sort, @sort_dir)}</th>
+              <th class={Theme.class(@theme, :th)}>Schedule</th>
+              <th class={Theme.class(@theme, :th)}>Prerequisites</th>
+              <th class={Theme.class(@theme, :th)}></th>
+            </tr>
+          </thead>
+          <tbody>
+            <%= for {_group, members} <- @groups, {_display, flag} <- members do %>
+              <tr class={Theme.class(@theme, :tr)}>
+                <td class={Theme.class(@theme, :td)}>
+                  <span class={Theme.class(@theme, :name)}>{flag.name}</span>
+                </td>
+                <td class={Theme.class(@theme, :td)}>{flag_state(flag)}</td>
+                <td class={Theme.class(@theme, :td)}>{format_age(flag.name)}</td>
+                <td class={Theme.class(@theme, :td)}>{if has_schedule?(flag), do: "📅", else: "—"}</td>
+                <td class={Theme.class(@theme, :td)}>{prerequisite_count(flag)}</td>
+                <td class={Theme.class(@theme, :td)}>
+                  <button
+                    type="button"
+                    class={Theme.class(@theme, :icon_button)}
+                    phx-click="toggle_row"
+                    phx-value-flag={flag.name}
+                  >{if expanded?(@expanded, flag), do: "▴", else: "▾"}</button>
+                </td>
+              </tr>
+              <tr :if={expanded?(@expanded, flag)}>
+                <td class={Theme.class(@theme, :td)} colspan="6">
+                  <div class={Theme.class(@theme, :editor)}>
+                    <.flag_editor
+                      flag={flag}
+                      theme={@theme}
+                      actor_drafts={@actor_drafts}
+                      group_drafts={@group_drafts}
+                      all_flags={@all_flags}
+                    />
+                  </div>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
       </div>
       """
     end
@@ -157,6 +352,16 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
     end
 
+    def handle_event("toggle_actor_gate", %{"flag" => name, "actor" => actor}, socket) do
+      flag_name = String.to_existing_atom(name)
+
+      if gate_enabled?(socket, name, :actor, actor),
+        do: Bandera.disable(flag_name, for_actor: actor),
+        else: Bandera.enable(flag_name, for_actor: actor)
+
+      {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
+    end
+
     def handle_event("group_input", %{"flag" => name, "group" => group}, socket) do
       {:noreply, update(socket, :group_drafts, &Map.put(&1, name, group))}
     end
@@ -179,6 +384,16 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
     def handle_event("remove_group", %{"flag" => name, "group" => group}, socket) do
       Bandera.clear(String.to_existing_atom(name), for_group: group)
+      {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
+    end
+
+    def handle_event("toggle_group_gate", %{"flag" => name, "group" => group}, socket) do
+      flag_name = String.to_existing_atom(name)
+
+      if gate_enabled?(socket, name, :group, group),
+        do: Bandera.disable(flag_name, for_group: group),
+        else: Bandera.enable(flag_name, for_group: group)
+
       {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
     end
 
@@ -322,6 +537,52 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       {:noreply, socket |> assign(:flash_error, nil) |> refresh()}
     end
 
+    @create_name_regex ~r/^[a-z][a-z0-9_.]*$/
+    def handle_event("create_flag", %{"flag_name" => raw}, socket) do
+      name = String.trim(raw)
+
+      cond do
+        name == "" ->
+          {:noreply, assign(socket, :create_error, "Flag name can't be blank.")}
+
+        String.length(name) > 64 ->
+          {:noreply, assign(socket, :create_error, "Flag name must be 64 characters or fewer.")}
+
+        not Regex.match?(@create_name_regex, name) ->
+          {:noreply,
+           assign(
+             socket,
+             :create_error,
+             "Invalid name. Use lowercase letters, digits, dots, and underscores; must start with a letter."
+           )}
+
+        true ->
+          # String.to_atom is safe here: input is restricted to at most 64 characters
+          # matching ~r/^[a-z][a-z0-9_.]*$/, only reachable from an authenticated dashboard session.
+          flag_atom = String.to_atom(name)
+
+          case Bandera.disable(flag_atom) do
+            {:ok, _} ->
+              {:noreply, socket |> assign(:create_error, nil) |> refresh()}
+
+            {:error, reason} ->
+              {:noreply,
+               assign(socket, :create_error, "Failed to create flag: #{inspect(reason)}")}
+          end
+      end
+    end
+
+    def handle_event("sort", %{"col" => col}, socket) do
+      new_sort = parse_sort(col)
+
+      new_dir =
+        if new_sort == socket.assigns.sort,
+          do: if(socket.assigns.sort_dir == :asc, do: :desc, else: :asc),
+          else: :asc
+
+      {:noreply, socket |> assign(sort: new_sort, sort_dir: new_dir) |> recompute_groups()}
+    end
+
     def handle_event("clear_flag", %{"flag" => name}, socket) do
       flag_name = String.to_existing_atom(name)
       Bandera.clear(flag_name)
@@ -339,275 +600,6 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
 
     def handle_info(_msg, socket), do: {:noreply, socket}
 
-    # ---- editor (inline; extract into Components later if it grows) ----
-
-    defp render_editor(assigns, flag) do
-      assigns = Phoenix.Component.assign(assigns, :flag, flag)
-
-      ~H"""
-      <fieldset class={Theme.class(@theme, :fieldset)}>
-        <legend class={Theme.class(@theme, :legend)}>Actors</legend>
-        <ul class={Theme.class(@theme, :gate_list)}>
-          <li :for={id <- actor_targets(@flag)} class={Theme.class(@theme, :gate_item)}>
-            <code>{id}</code>
-            <button
-              type="button"
-              class={Theme.class(@theme, :danger_button)}
-              phx-click="remove_actor"
-              phx-value-flag={@flag.name}
-              phx-value-actor={id}
-            >remove</button>
-          </li>
-        </ul>
-        <form phx-submit="add_actor" phx-change="actor_input">
-          <input type="hidden" name="flag" value={@flag.name} />
-          <input
-            type="text"
-            name="actor"
-            value={Map.get(@actor_drafts, to_string(@flag.name), "")}
-            placeholder="actor id"
-            class={Theme.class(@theme, :input)}
-          />
-          <button class={Theme.class(@theme, :primary_button)}>add actor</button>
-        </form>
-      </fieldset>
-
-      <fieldset class={Theme.class(@theme, :fieldset)}>
-        <legend class={Theme.class(@theme, :legend)}>Groups</legend>
-        <ul class={Theme.class(@theme, :gate_list)}>
-          <li :for={name <- group_targets(@flag)} class={Theme.class(@theme, :gate_item)}>
-            <code>{name}</code>
-            <button
-              type="button"
-              class={Theme.class(@theme, :danger_button)}
-              phx-click="remove_group"
-              phx-value-flag={@flag.name}
-              phx-value-group={name}
-            >remove</button>
-          </li>
-        </ul>
-        <form phx-submit="add_group" phx-change="group_input">
-          <input type="hidden" name="flag" value={@flag.name} />
-          <input
-            type="text"
-            name="group"
-            value={Map.get(@group_drafts, to_string(@flag.name), "")}
-            placeholder="group name"
-            class={Theme.class(@theme, :input)}
-          />
-          <button class={Theme.class(@theme, :primary_button)}>add group</button>
-        </form>
-      </fieldset>
-
-      <fieldset class={Theme.class(@theme, :fieldset)}>
-        <legend class={Theme.class(@theme, :legend)}>Percentage</legend>
-        <form phx-submit="set_percentage">
-          <input type="hidden" name="flag" value={@flag.name} />
-          <input
-            type="number"
-            name="percent"
-            min="1"
-            max="99"
-            placeholder="%"
-            class={Theme.class(@theme, :input)}
-          />
-          <select name="kind" class={Theme.class(@theme, :select)}>
-            <option value="actors">of actors</option>
-            <option value="time">of time</option>
-          </select>
-          <button class={Theme.class(@theme, :primary_button)}>set</button>
-          <button
-            type="button"
-            class={Theme.class(@theme, :neutral_button)}
-            phx-click="clear_percentage"
-            phx-value-flag={@flag.name}
-          >
-            clear
-          </button>
-        </form>
-      </fieldset>
-
-      {render_variants(assigns, @flag)}
-      {render_rule(assigns, @flag)}
-      {render_segments(assigns, @flag)}
-      {render_prerequisites(assigns, @flag)}
-      {render_schedule(assigns, @flag)}
-
-      <button
-        type="button"
-        class={Theme.class(@theme, :danger_button)}
-        phx-click="clear_flag"
-        phx-value-flag={@flag.name}
-      >
-        Clear whole flag
-      </button>
-      """
-    end
-
-    defp render_variants(assigns, flag) do
-      assigns = Phoenix.Component.assign(assigns, :flag, flag)
-
-      ~H"""
-      <fieldset class={Theme.class(@theme, :fieldset)}>
-        <legend class={Theme.class(@theme, :legend)}>Variants</legend>
-        <ul class={Theme.class(@theme, :gate_list)}>
-          <li :for={{name, weight} <- variant_weights(@flag)} class={Theme.class(@theme, :gate_item)}>
-            <code>{name} ({weight})</code>
-            <button
-              type="button"
-              class={Theme.class(@theme, :danger_button)}
-              phx-click="remove_variant"
-              phx-value-flag={@flag.name}
-              phx-value-variant={name}
-            >remove</button>
-          </li>
-        </ul>
-        <form phx-submit="add_variant">
-          <input type="hidden" name="flag" value={@flag.name} />
-          <input type="text" name="variant" placeholder="variant name" class={Theme.class(@theme, :input)} />
-          <input type="number" name="weight" min="1" step="any" placeholder="weight" class={Theme.class(@theme, :input)} />
-          <button class={Theme.class(@theme, :primary_button)}>add variant</button>
-        </form>
-      </fieldset>
-      """
-    end
-
-    defp render_rule(assigns, flag) do
-      assigns =
-        assigns
-        |> Phoenix.Component.assign(:flag, flag)
-        |> Phoenix.Component.assign(:constraints, rule_constraints(flag))
-        |> Phoenix.Component.assign(:operators, @constraint_operators)
-
-      ~H"""
-      <fieldset class={Theme.class(@theme, :fieldset)}>
-        <legend class={Theme.class(@theme, :legend)}>Rule</legend>
-        <ul class={Theme.class(@theme, :gate_list)}>
-          <li :for={{c, i} <- Enum.with_index(@constraints)} class={Theme.class(@theme, :gate_item)}>
-            <code>{c.attribute} {c.operator} {Enum.join(c.values, ", ")}</code>
-            <button
-              type="button"
-              class={Theme.class(@theme, :danger_button)}
-              phx-click="remove_constraint"
-              phx-value-flag={@flag.name}
-              phx-value-index={i}
-            >remove</button>
-          </li>
-        </ul>
-        <form phx-submit="add_constraint">
-          <input type="hidden" name="flag" value={@flag.name} />
-          <input type="text" name="attribute" placeholder="attribute" class={Theme.class(@theme, :input)} />
-          <select name="operator" class={Theme.class(@theme, :select)}>
-            <option :for={op <- @operators} value={op}>{op}</option>
-          </select>
-          <input type="text" name="values" placeholder="values (comma-separated)" class={Theme.class(@theme, :input)} />
-          <button class={Theme.class(@theme, :primary_button)}>add constraint</button>
-        </form>
-      </fieldset>
-      """
-    end
-
-    defp render_segments(assigns, flag) do
-      assigns = Phoenix.Component.assign(assigns, :flag, flag)
-
-      ~H"""
-      <fieldset class={Theme.class(@theme, :fieldset)}>
-        <legend class={Theme.class(@theme, :legend)}>Segments</legend>
-        <ul class={Theme.class(@theme, :gate_list)}>
-          <li :for={seg <- segment_targets(@flag)} class={Theme.class(@theme, :gate_item)}>
-            <code>{seg}</code>
-            <button
-              type="button"
-              class={Theme.class(@theme, :danger_button)}
-              phx-click="remove_segment"
-              phx-value-flag={@flag.name}
-              phx-value-segment={seg}
-            >remove</button>
-          </li>
-        </ul>
-        <form phx-submit="add_segment">
-          <input type="hidden" name="flag" value={@flag.name} />
-          <input type="text" name="segment" placeholder="segment name" class={Theme.class(@theme, :input)} />
-          <button class={Theme.class(@theme, :primary_button)}>add segment</button>
-        </form>
-      </fieldset>
-      """
-    end
-
-    defp render_prerequisites(assigns, flag) do
-      assigns =
-        assigns
-        |> Phoenix.Component.assign(:flag, flag)
-        |> Phoenix.Component.assign(:candidates, prerequisite_candidates(assigns.all_flags, flag))
-
-      ~H"""
-      <fieldset class={Theme.class(@theme, :fieldset)}>
-        <legend class={Theme.class(@theme, :legend)}>Prerequisites</legend>
-        <ul class={Theme.class(@theme, :gate_list)}>
-          <li :for={g <- prerequisite_gates(@flag)} class={Theme.class(@theme, :gate_item)}>
-            <code>{g.for} (must be {if g.enabled, do: "on", else: "off"})</code>
-            <button
-              type="button"
-              class={Theme.class(@theme, :danger_button)}
-              phx-click="remove_prerequisite"
-              phx-value-flag={@flag.name}
-              phx-value-parent={g.for}
-            >remove</button>
-          </li>
-        </ul>
-        <form phx-submit="add_prerequisite">
-          <input type="hidden" name="flag" value={@flag.name} />
-          <select name="parent" class={Theme.class(@theme, :select)}>
-            <option value="">flag…</option>
-            <option :for={f <- @candidates} value={f}>{f}</option>
-          </select>
-          <select name="required" class={Theme.class(@theme, :select)}>
-            <option value="on">on</option>
-            <option value="off">off</option>
-          </select>
-          <button class={Theme.class(@theme, :primary_button)}>add prerequisite</button>
-        </form>
-      </fieldset>
-      """
-    end
-
-    defp render_schedule(assigns, flag) do
-      assigns =
-        assigns
-        |> Phoenix.Component.assign(:flag, flag)
-        |> Phoenix.Component.assign(:window, schedule_window(flag))
-
-      ~H"""
-      <fieldset class={Theme.class(@theme, :fieldset)}>
-        <legend class={Theme.class(@theme, :legend)}>Schedule</legend>
-        <form phx-submit="set_schedule">
-          <input type="hidden" name="flag" value={@flag.name} />
-          <input
-            type="text"
-            name="from"
-            value={@window["from"]}
-            placeholder="from (ISO 8601)"
-            class={Theme.class(@theme, :input)}
-          />
-          <input
-            type="text"
-            name="until"
-            value={@window["until"]}
-            placeholder="until (ISO 8601)"
-            class={Theme.class(@theme, :input)}
-          />
-          <button class={Theme.class(@theme, :primary_button)}>set</button>
-          <button
-            type="button"
-            class={Theme.class(@theme, :neutral_button)}
-            phx-click="clear_schedule"
-            phx-value-flag={@flag.name}
-          >clear</button>
-        </form>
-      </fieldset>
-      """
-    end
-
     # ---- assigns helpers ----
 
     defp load_flags(socket) do
@@ -617,18 +609,76 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           {:error, _} -> []
         end
 
-      socket |> assign(:all_flags, flags) |> recompute_groups()
+      flag_names = Enum.map(flags, & &1.name)
+      similar = Bandera.Dashboard.Similarity.similar_pairs(flag_names)
+
+      socket
+      |> assign(:all_flags, flags)
+      |> assign(:similar_pairs, similar)
+      |> recompute_groups()
     end
 
     defp recompute_groups(socket) do
-      separator = Bandera.Config.group_separator()
+      separator =
+        if socket.assigns.grouped and socket.assigns.view == :cards,
+          do: Bandera.Config.group_separator(),
+          else: nil
 
       filtered =
         for flag <- socket.assigns.all_flags,
             matches?(flag, socket.assigns.search),
             do: flag
 
-      assign(socket, :groups, Bandera.Dashboard.Grouping.group(filtered, separator))
+      grouped = Bandera.Dashboard.Grouping.group(filtered, separator)
+
+      groups =
+        if socket.assigns.view == :table do
+          apply_table_sort(grouped, socket.assigns.sort, socket.assigns.sort_dir)
+        else
+          grouped
+        end
+
+      assign(socket, :groups, groups)
+    end
+
+    defp apply_table_sort(groups, sort, dir) do
+      Enum.map(groups, fn {group, members} ->
+        sorted =
+          case sort do
+            :name ->
+              Enum.sort_by(members, fn {_display, flag} -> to_string(flag.name) end, dir)
+
+            :state ->
+              Enum.sort_by(members, fn {_display, flag} -> flag_state_sort_key(flag) end, dir)
+
+            :last_evaluated ->
+              Enum.sort_by(
+                members,
+                fn {_display, flag} ->
+                  case Bandera.Dashboard.Stale.age_days(flag.name) do
+                    :never -> nil
+                    {:ok, days} -> days
+                  end
+                end,
+                fn
+                  nil, nil -> true
+                  nil, _ -> true
+                  _, nil -> false
+                  a, b -> if dir == :asc, do: a >= b, else: a <= b
+                end
+              )
+          end
+
+        {group, sorted}
+      end)
+    end
+
+    defp flag_state_sort_key(flag) do
+      case flag_state(flag) do
+        "on" -> 0
+        "partial" -> 1
+        "off" -> 2
+      end
     end
 
     defp matches?(_flag, ""), do: true
@@ -646,21 +696,6 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     defp group_collapsed?(collapsed, group), do: MapSet.member?(collapsed, group)
 
     defp toggle_role(flag), do: if(boolean_on?(flag), do: :toggle_on, else: :toggle_off)
-
-    defp actor_targets(flag) do
-      for g <- flag.gates, Bandera.Gate.actor?(g), do: g.for
-    end
-
-    defp group_targets(flag) do
-      for g <- flag.gates, Bandera.Gate.group?(g), do: g.for
-    end
-
-    defp segment_targets(flag), do: for(g <- flag.gates, Bandera.Gate.segment?(g), do: g.for)
-
-    defp prerequisite_gates(flag), do: for(g <- flag.gates, Bandera.Gate.prerequisite?(g), do: g)
-
-    defp prerequisite_candidates(all_flags, flag),
-      do: for(f <- all_flags, f.name != flag.name, do: f.name)
 
     defp current_flag(socket, name),
       do: Enum.find(socket.assigns.all_flags, &(to_string(&1.name) == name))
@@ -708,6 +743,8 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       |> Enum.map(&coerce_value/1)
     end
 
+    @constraint_operators ~w(eq neq in not_in contains gt gte lt lte matches)a
+
     defp parse_operator(op) do
       case Enum.find(@constraint_operators, &(Atom.to_string(&1) == op)) do
         nil -> :error
@@ -734,7 +771,29 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       end)
     end
 
-    defp refresh(socket), do: load_flags(socket)
+    # Whether the actor/group gate for `target` on flag `name` is currently a
+    # grant (true) vs a deny (false/absent). Used to decide which way to toggle.
+    defp gate_enabled?(socket, name, type, target) do
+      Enum.any?(socket.assigns.all_flags, fn flag ->
+        to_string(flag.name) == name and
+          Enum.any?(flag.gates, fn g ->
+            g.type == type and to_string(g.for) == to_string(target) and g.enabled
+          end)
+      end)
+    end
+
+    defp refresh(socket) do
+      socket
+      |> load_flags()
+      |> assign(
+        stale_set: Bandera.Dashboard.Stale.stale_set(),
+        usage_available: Bandera.Dashboard.Stale.usage_available?()
+      )
+    end
+
+    defp parse_sort("last_evaluated"), do: :last_evaluated
+    defp parse_sort("state"), do: :state
+    defp parse_sort(_), do: :name
 
     @change_topic "bandera:changes"
 
@@ -751,18 +810,41 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     defp percentage_kind("time"), do: {:ok, :time}
     defp percentage_kind(_), do: :error
 
-    defp schedule_window(flag) do
-      case Enum.find(flag.gates, &Bandera.Gate.schedule?/1) do
-        nil -> %{"from" => nil, "until" => nil}
-        gate -> gate.value
-      end
-    end
-
     defp blank_to_nil(str) do
       case String.trim(str) do
         "" -> nil
         s -> s
       end
     end
+
+    defp has_schedule?(flag), do: Enum.any?(flag.gates, &Bandera.Gate.schedule?/1)
+    defp has_prerequisites?(flag), do: Enum.any?(flag.gates, &Bandera.Gate.prerequisite?/1)
+
+    defp flag_state(flag) do
+      cond do
+        boolean_on?(flag) -> "on"
+        Enum.any?(flag.gates, fn g -> g.type == :boolean and not g.enabled end) -> "off"
+        flag.gates == [] -> "off"
+        true -> "partial"
+      end
+    end
+
+    defp format_age(flag_name) do
+      case Bandera.Dashboard.Stale.age_days(flag_name) do
+        :never -> "—"
+        {:ok, days} -> "#{days}d ago"
+      end
+    end
+
+    defp prerequisite_count(flag) do
+      case Enum.count(flag.gates, &Bandera.Gate.prerequisite?/1) do
+        0 -> "—"
+        n -> to_string(n)
+      end
+    end
+
+    defp sort_arrow(col, col, :asc), do: "▴"
+    defp sort_arrow(col, col, :desc), do: "▾"
+    defp sort_arrow(_col, _sort, _dir), do: ""
   end
 end

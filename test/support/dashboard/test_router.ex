@@ -14,5 +14,6 @@ defmodule Bandera.Dashboard.TestRouter do
   scope "/" do
     pipe_through(:browser)
     bandera_dashboard("/flags")
+    bandera_dashboard("/feature-flags", live_session_name: :bandera_dashboard_alt)
   end
 end

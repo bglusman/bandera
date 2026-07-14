@@ -111,6 +111,63 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     refute html =~ ">beta<"
   end
 
+  test "toggle_actor_gate flips an actor gate between grant and deny", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, true} = Bandera.enable(:billing_invoices, for_actor: "user-1")
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    assert Bandera.enabled?(:billing_invoices, for: "user-1")
+
+    # Toggle to deny — gate stays, but flips to disabled.
+    _ =
+      render_click(live, "toggle_actor_gate", %{"flag" => "billing_invoices", "actor" => "user-1"})
+
+    refute Bandera.enabled?(:billing_invoices, for: "user-1")
+    assert actor_gate(:billing_invoices, "user-1").enabled == false
+
+    # Toggle back to grant.
+    _ =
+      render_click(live, "toggle_actor_gate", %{"flag" => "billing_invoices", "actor" => "user-1"})
+
+    assert Bandera.enabled?(:billing_invoices, for: "user-1")
+    assert actor_gate(:billing_invoices, "user-1").enabled == true
+  end
+
+  test "toggle_group_gate flips a group gate between grant and deny", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices, for_group: "beta")
+    {:ok, live, _html} = live(conn, "/flags")
+    _ = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    assert Bandera.enabled?(:billing_invoices, for: %{id: 1, groups: [:beta]})
+
+    _ =
+      render_click(live, "toggle_group_gate", %{"flag" => "billing_invoices", "group" => "beta"})
+
+    refute Bandera.enabled?(:billing_invoices, for: %{id: 1, groups: [:beta]})
+    assert group_gate(:billing_invoices, "beta").enabled == false
+
+    _ =
+      render_click(live, "toggle_group_gate", %{"flag" => "billing_invoices", "group" => "beta"})
+
+    assert Bandera.enabled?(:billing_invoices, for: %{id: 1, groups: [:beta]})
+    assert group_gate(:billing_invoices, "beta").enabled == true
+  end
+
+  test "a denied group gate renders with the off toggle and survives a clear", %{conn: conn} do
+    {:ok, _} = Bandera.disable(:billing_invoices, for_group: "beta")
+    {:ok, live, _html} = live(conn, "/flags")
+    html = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+
+    # The deny gate is listed (not hidden) and its toggle reads "off".
+    assert html =~ "beta"
+    assert group_gate(:billing_invoices, "beta").enabled == false
+
+    # remove still clears the gate entirely.
+    _ = render_click(live, "remove_group", %{"flag" => "billing_invoices", "group" => "beta"})
+    assert group_gate(:billing_invoices, "beta") == nil
+  end
+
   test "set and clear a percentage gate, with validation", %{conn: conn} do
     {:ok, true} = Bandera.enable(:billing_invoices)
     {:ok, live, _html} = live(conn, "/flags")
@@ -479,6 +536,215 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     refute html =~ "scheduled 2026"
   end
 
+  test "defaults to card view with grouping on", %{conn: conn} do
+    {:ok, _live, html} = live(conn, "/flags")
+    assert html =~ "Table"
+    assert html =~ "Group by namespace"
+  end
+
+  test "?view=table switches to table view", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, _live, html} = live(conn, "/flags?view=table")
+    assert html =~ "bandera-table"
+    assert html =~ "Last evaluated"
+  end
+
+  test "?grouped=false shows full flag names without group headers", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, _live, html} = live(conn, "/flags?grouped=false")
+    assert html =~ "billing_invoices"
+    refute html =~ "<summary"
+  end
+
+  test "view and grouping toggle links use the actual mount path, not /flags", %{conn: conn} do
+    {:ok, _live, html} = live(conn, "/feature-flags")
+    assert html =~ ~s(href="/feature-flags?)
+    refute html =~ ~s(href="/flags?)
+  end
+
+  test "table view works when mounted at a custom path", %{conn: conn} do
+    {:ok, _live, html} = live(conn, "/feature-flags?view=table")
+    assert html =~ "bandera-table"
+  end
+
+  test "grouped=false works when mounted at a custom path", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, _live, html} = live(conn, "/feature-flags?grouped=false")
+    assert html =~ "billing_invoices"
+    refute html =~ "<summary"
+  end
+
+  test "usage_warning is shown when Bandera.Usage is not running", %{conn: conn} do
+    {:ok, _live, html} = live(conn, "/flags")
+    assert html =~ "Stale flag detection is unavailable"
+  end
+
+  test "stale flag shows ⚠ icon when Usage is running and flag is stale", %{conn: conn} do
+    start_supervised!(Bandera.Usage)
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    old_time = DateTime.add(DateTime.utc_now(), -40 * 86_400, :second)
+    :ets.insert(Bandera.Usage, {:billing_invoices, old_time})
+
+    {:ok, _live, html} = live(conn, "/flags")
+    assert html =~ "⚠"
+  end
+
+  test "flag with schedule gate shows 📅 icon", %{conn: conn} do
+    {:ok, true} =
+      Bandera.enable(:billing_invoices,
+        schedule: {"2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z"}
+      )
+
+    {:ok, _live, html} = live(conn, "/flags")
+    assert html =~ "📅"
+  end
+
+  test "flag with prerequisite gate shows 🔗 icon", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, true} = Bandera.enable(:billing_parent)
+    Bandera.enable(:billing_invoices, requires: {:billing_parent, true})
+
+    {:ok, _live, html} = live(conn, "/flags")
+    assert html =~ "🔗"
+  end
+
+  test "grouped mode shows full namespaced name as subtitle", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, _live, html} = live(conn, "/flags")
+    assert html =~ "billing_invoices"
+  end
+
+  test "table view shows all flags with full names", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, true} = Bandera.enable(:beta)
+    {:ok, _live, html} = live(conn, "/flags?view=table")
+    assert html =~ "billing_invoices"
+    assert html =~ "beta"
+  end
+
+  test "table view shows 📅 for flags with schedules", %{conn: conn} do
+    {:ok, true} =
+      Bandera.enable(:billing_invoices,
+        schedule: {"2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z"}
+      )
+
+    {:ok, _live, html} = live(conn, "/flags?view=table")
+    assert html =~ "📅"
+  end
+
+  test "table view shows prerequisite count", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, true} = Bandera.enable(:billing_parent)
+    Bandera.enable(:billing_invoices, requires: {:billing_parent, true})
+
+    {:ok, _live, html} = live(conn, "/flags?view=table")
+    assert html =~ ">1<"
+  end
+
+  test "table row expand shows the gate editor", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, live, _html} = live(conn, "/flags?view=table")
+    refute render(live) =~ "add actor"
+
+    html = render_click(live, "toggle_row", %{"flag" => "billing_invoices"})
+    assert html =~ "add actor"
+  end
+
+  test "table view sorts by name ascending by default", %{conn: conn} do
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    {:ok, true} = Bandera.enable(:alpha_flag)
+    {:ok, _live, html} = live(conn, "/flags?view=table")
+    {alpha_pos, _} = :binary.match(html, "alpha_flag")
+    {billing_pos, _} = :binary.match(html, "billing_invoices")
+    assert alpha_pos < billing_pos
+  end
+
+  describe "create flag" do
+    test "create form is rendered above the flag list", %{conn: conn} do
+      {:ok, _live, html} = live(conn, "/flags")
+      assert html =~ ~s(phx-submit="create_flag")
+      assert html =~ "new.flag.name"
+    end
+
+    test "valid name creates a disabled flag and shows it in the list", %{conn: conn} do
+      {:ok, live, _html} = live(conn, "/flags")
+      html = render_submit(live, "create_flag", %{"flag_name" => "my_new_flag"})
+      assert html =~ "my_new_flag"
+      refute Bandera.enabled?(:my_new_flag)
+      {:ok, flag} = Bandera.get_flag(:my_new_flag)
+      assert Enum.any?(flag.gates, fn g -> g.type == :boolean and not g.enabled end)
+    end
+
+    test "blank name shows inline error", %{conn: conn} do
+      {:ok, live, _html} = live(conn, "/flags")
+      html = render_submit(live, "create_flag", %{"flag_name" => ""})
+      assert html =~ "can&#39;t be blank" or html =~ "can't be blank"
+    end
+
+    test "invalid characters show inline error", %{conn: conn} do
+      {:ok, live, _html} = live(conn, "/flags")
+      html = render_submit(live, "create_flag", %{"flag_name" => "My-Flag!"})
+      assert html =~ "lowercase"
+    end
+
+    test "name starting with a digit shows inline error", %{conn: conn} do
+      {:ok, live, _html} = live(conn, "/flags")
+      html = render_submit(live, "create_flag", %{"flag_name" => "1bad"})
+      assert html =~ "lowercase"
+    end
+
+    test "valid names with dots and underscores are accepted", %{conn: conn} do
+      {:ok, live, _html} = live(conn, "/flags")
+      html = render_submit(live, "create_flag", %{"flag_name" => "billing.invoices_v2"})
+      assert html =~ "billing.invoices_v2"
+    end
+
+    test "name exceeding 64 characters shows inline error", %{conn: conn} do
+      {:ok, live, _html} = live(conn, "/flags")
+      long_name = String.duplicate("a", 65)
+      html = render_submit(live, "create_flag", %{"flag_name" => long_name})
+      assert html =~ "64 characters"
+    end
+  end
+
+  describe "similarity warnings" do
+    test "no warning shown when flag names are distinct", %{conn: conn} do
+      {:ok, false} = Bandera.disable(:billing_invoices)
+      {:ok, false} = Bandera.disable(:checkout)
+      {:ok, _live, html} = live(conn, "/flags")
+      refute html =~ "Possible typos detected"
+    end
+
+    test "shows similarity warning when two flags are near-duplicates", %{conn: conn} do
+      {:ok, false} = Bandera.disable(:checkout)
+      {:ok, false} = Bandera.disable(:chekout)
+      {:ok, _live, html} = live(conn, "/flags")
+      assert html =~ "Possible typos detected"
+      assert html =~ "checkout"
+      assert html =~ "chekout"
+    end
+
+    test "similarity warning appears above the flag list", %{conn: conn} do
+      {:ok, false} = Bandera.disable(:checkout)
+      {:ok, false} = Bandera.disable(:chekout)
+      {:ok, _live, html} = live(conn, "/flags")
+      {warning_pos, _} = :binary.match(html, "Possible typos detected")
+
+      # match the class attribute in the rendered HTML, not the CSS definition in the <style> block
+      {flag_pos, _} = :binary.match(html, ~s(class="bandera-row"))
+      assert warning_pos < flag_pos
+    end
+
+    test "warning disappears after similar flag is cleared", %{conn: conn} do
+      {:ok, false} = Bandera.disable(:checkout)
+      {:ok, false} = Bandera.disable(:chekout)
+      {:ok, live, html} = live(conn, "/flags")
+      assert html =~ "Possible typos detected"
+      html = render_click(live, "clear_flag", %{"flag" => "chekout"})
+      refute html =~ "Possible typos detected"
+    end
+  end
+
   test "refreshes when another node broadcasts a flag change", %{conn: conn} do
     Application.put_env(:bandera, :cache_bust_notifications,
       enabled: true,
@@ -505,5 +771,16 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     )
 
     assert render(live) =~ "promo_banner"
+  end
+
+  defp actor_gate(flag_name, target), do: find_gate(flag_name, :actor, target)
+  defp group_gate(flag_name, target), do: find_gate(flag_name, :group, target)
+
+  defp find_gate(flag_name, type, target) do
+    {:ok, flag} = Bandera.get_flag(flag_name)
+
+    Enum.find(flag.gates, fn g ->
+      g.type == type and to_string(g.for) == to_string(target)
+    end)
   end
 end

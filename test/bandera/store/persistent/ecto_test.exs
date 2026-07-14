@@ -34,6 +34,49 @@ defmodule Bandera.Store.Persistent.EctoTest do
     assert [%Gate{type: :boolean, enabled: false}] = flag.gates
   end
 
+  test "boolean put over an existing sentinel row upserts instead of violating the unique index" do
+    # Regression for the FunWithFlags->Bandera migration incident (23505 on
+    # fwf_flag_name_gate_target_idx). The boolean path used to delete_all + bare
+    # insert_all with no on_conflict, so under concurrent toggles two writers could
+    # both delete then both insert, and the loser's insert hit the
+    # (flag_name, gate_type, target) unique index. Insert the sentinel row directly
+    # to model "a row is already present when this writer inserts", then assert the
+    # put replaces it rather than raising.
+    Bandera.TestRepo.query!(
+      "INSERT INTO bandera_flags (flag_name, gate_type, target, enabled) VALUES ('race_flag', 'boolean', '_bandera_none', 0)"
+    )
+
+    assert {:ok, %Flag{gates: [%Gate{type: :boolean, enabled: true}]}} =
+             EctoStore.put(:race_flag, Gate.new(:boolean, true))
+
+    # Exactly one boolean row remains, at the sentinel target (SQLite returns the
+    # boolean as an integer over the raw driver).
+    %{rows: rows} =
+      Bandera.TestRepo.query!(
+        "SELECT target, enabled FROM bandera_flags WHERE flag_name = 'race_flag' AND gate_type = 'boolean'"
+      )
+
+    assert rows == [["_bandera_none", 1]]
+  end
+
+  test "boolean put clears legacy FunWithFlags rows stored at a non-sentinel target" do
+    # FunWithFlags stored boolean gates at target = "boolean". A Bandera write must
+    # remove that stale row so the flag does not keep two contradictory boolean rows.
+    Bandera.TestRepo.query!(
+      "INSERT INTO bandera_flags (flag_name, gate_type, target, enabled) VALUES ('legacy_flag', 'boolean', 'boolean', 1)"
+    )
+
+    assert {:ok, %Flag{gates: [%Gate{type: :boolean, enabled: false}]}} =
+             EctoStore.put(:legacy_flag, Gate.new(:boolean, false))
+
+    %{rows: rows} =
+      Bandera.TestRepo.query!(
+        "SELECT target, enabled FROM bandera_flags WHERE flag_name = 'legacy_flag' AND gate_type = 'boolean'"
+      )
+
+    assert rows == [["_bandera_none", 0]]
+  end
+
   test "actor and group gates coexist and round-trip" do
     {:ok, _} = EctoStore.put(:f, Gate.new(:actor, %{id: 1}, true))
     {:ok, _} = EctoStore.put(:f, Gate.new(:group, :admin, false))

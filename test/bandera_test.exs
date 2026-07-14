@@ -189,16 +189,16 @@ defmodule BanderaTest do
     {:ok, _} = Bandera.enable(:f)
     assert Bandera.enabled?(:f)
     assert :ok = Bandera.clear(:f, for_actor: nil)
-    refute Bandera.enabled?(:f)
     assert {:ok, %Bandera.Flag{name: :f, gates: []}} = Bandera.get_flag(:f)
+    refute Bandera.enabled?(:f)
   end
 
   test "clear(flag, for_group: nil) clears the whole flag" do
     {:ok, _} = Bandera.enable(:f)
     assert Bandera.enabled?(:f)
     assert :ok = Bandera.clear(:f, for_group: nil)
-    refute Bandera.enabled?(:f)
     assert {:ok, %Bandera.Flag{name: :f, gates: []}} = Bandera.get_flag(:f)
+    refute Bandera.enabled?(:f)
   end
 
   test "enable/2 carries :by into the :enable telemetry metadata" do
@@ -217,6 +217,51 @@ defmodule BanderaTest do
     {:ok, _} = Bandera.enable(:f, by: "alice")
     assert_receive {:meta, %{options: options}}
     assert Keyword.get(options, :by) == "alice"
+  end
+
+  describe "auto_create" do
+    setup do
+      Application.put_env(:bandera, :auto_create, true)
+      on_exit(fn -> Application.delete_env(:bandera, :auto_create) end)
+      :ok
+    end
+
+    test "enabled?/1 auto-creates an unknown flag as disabled when auto_create is true" do
+      refute Bandera.enabled?(:new_auto_flag)
+      assert {:ok, flag} = Bandera.get_flag(:new_auto_flag)
+      assert Enum.any?(flag.gates, fn g -> g.type == :boolean and not g.enabled end)
+    end
+
+    test "enabled?/1 still returns false (fail-closed) after auto-creation" do
+      refute Bandera.enabled?(:another_auto_flag)
+      refute Bandera.enabled?(:another_auto_flag)
+    end
+
+    test "auto-created flag appears in all_flag_names" do
+      refute Bandera.enabled?(:listed_auto_flag)
+      {:ok, names} = Bandera.all_flag_names()
+      assert :listed_auto_flag in names
+    end
+
+    test "auto_create: false disables auto-creation" do
+      Application.put_env(:bandera, :auto_create, false)
+      refute Bandera.enabled?(:no_create_flag)
+      {:ok, names} = Bandera.all_flag_names()
+      refute :no_create_flag in names
+    end
+
+    test "does not auto-create segment flags" do
+      refute Bandera.enabled?(:"bandera_segment:foo")
+      {:ok, names} = Bandera.all_flag_names()
+      refute :"bandera_segment:foo" in names
+    end
+
+    test "does not overwrite an existing enabled flag" do
+      {:ok, true} = Bandera.enable(:existing_auto_flag)
+      assert Bandera.enabled?(:existing_auto_flag)
+      {:ok, flag} = Bandera.get_flag(:existing_auto_flag)
+      assert Enum.any?(flag.gates, fn g -> g.type == :boolean and g.enabled end)
+    end
   end
 
   describe "store errors propagate (FailingStore)" do

@@ -94,4 +94,45 @@ defmodule Bandera.Dashboard.ComponentsTest do
     assert html =~ ".bandera-wrap"
     assert html =~ ".bandera-toggle"
   end
+
+  describe "similarity_warning/1" do
+    test "renders nothing when pairs list is empty" do
+      html = render_component(&Components.similarity_warning/1, pairs: [], theme: :standalone)
+      refute html =~ "Possible typos"
+    end
+
+    test "renders amber warning section when pairs are present" do
+      html =
+        render_component(&Components.similarity_warning/1,
+          pairs: [{:checkout, :chekout, 0.97}],
+          theme: :standalone
+        )
+
+      assert html =~ "Possible typos detected"
+      assert html =~ "checkout"
+      assert html =~ "chekout"
+      assert html =~ "0.97"
+    end
+
+    test "renders multiple pairs" do
+      html =
+        render_component(&Components.similarity_warning/1,
+          pairs: [{:checkout, :chekout, 0.97}, {:billing, :billin, 0.96}],
+          theme: :standalone
+        )
+
+      assert html =~ "checkout"
+      assert html =~ "billin"
+    end
+
+    test "uses bandera-similarity-warning class for standalone theme" do
+      html =
+        render_component(&Components.similarity_warning/1,
+          pairs: [{:checkout, :chekout, 0.97}],
+          theme: :standalone
+        )
+
+      assert html =~ "bandera-similarity-warning"
+    end
+  end
 end

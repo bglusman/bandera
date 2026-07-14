@@ -290,6 +290,27 @@ end
 additions); run it once from a versioned migration. New installs calling
 `Bandera.Ecto.Migrations.up()` get the column automatically.
 
+### Adding the usage table (stale-flag detection)
+
+`Bandera.Usage` can persist last-evaluated timestamps to a `bandera_usage` table
+so stale-flag detection survives restarts and pod recycling. New installs calling
+`Bandera.Ecto.Migrations.up()` get this table automatically. Existing installs add
+it from a new migration without touching the flags table:
+
+```elixir
+defmodule MyApp.Repo.Migrations.CreateBanderaUsage do
+  use Ecto.Migration
+
+  def up, do: Bandera.Ecto.Migrations.up_usage()
+  def down, do: Bandera.Ecto.Migrations.down_usage()
+end
+```
+
+`Bandera.Usage` seeds ETS from this table at startup and flushes back every 10
+minutes (configurable via `config :bandera, usage: [flush_interval: 600]`). It only
+writes to the DB when the Ecto persistence adapter is configured; with any other
+adapter it stays in-memory only.
+
 ## Prerequisites
 
 A flag can require another flag to be in a given state before it's allowed to turn
