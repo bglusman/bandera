@@ -14,6 +14,24 @@ defmodule Bandera.Dashboard.StaleTest do
     end
   end
 
+  describe "usage_status/0" do
+    test "GIVEN Usage is stopped WHEN status is checked THEN it is unavailable" do
+      assert Stale.usage_status() == :unavailable
+    end
+
+    test "GIVEN in-memory usage is running WHEN status is checked THEN it is ready" do
+      start_supervised!(Bandera.Usage)
+      assert Stale.usage_status() == :ready
+    end
+
+    test "GIVEN persisted history is loading WHEN status is checked THEN it is loading" do
+      start_supervised!(Bandera.Usage)
+      :sys.replace_state(Bandera.Usage, fn state -> %{state | loaded?: false} end)
+
+      assert Stale.usage_status() == :loading
+    end
+  end
+
   describe "stale_set/1" do
     test "returns empty MapSet when Usage is not running" do
       assert Stale.stale_set() == MapSet.new()
@@ -35,6 +53,15 @@ defmodule Bandera.Dashboard.StaleTest do
       :ets.insert(Bandera.Usage, {:old_flag, old_time})
       result = Stale.stale_set(older_than: 30)
       assert MapSet.member?(result, :old_flag)
+    end
+
+    test "GIVEN history is loading WHEN stale flags are requested THEN no flag is marked stale" do
+      setup_store()
+      {:ok, true} = Bandera.enable(:unseen_flag)
+      start_supervised!(Bandera.Usage)
+      :sys.replace_state(Bandera.Usage, fn state -> %{state | loaded?: false} end)
+
+      assert Stale.stale_set(older_than: 30) == MapSet.new()
     end
   end
 

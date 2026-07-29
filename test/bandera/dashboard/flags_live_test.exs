@@ -579,6 +579,28 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     assert html =~ "Stale flag detection is unavailable"
   end
 
+  test "GIVEN persisted usage is loading WHEN it becomes ready THEN the dashboard refreshes", %{
+    conn: conn
+  } do
+    start_supervised!(Bandera.Usage)
+    {:ok, true} = Bandera.enable(:billing_invoices)
+    :sys.replace_state(Bandera.Usage, fn state -> %{state | loaded?: false} end)
+
+    {:ok, live, html} = live(conn, "/flags")
+
+    assert html =~ "Usage history is loading"
+    refute html =~ "Never evaluated"
+
+    old_time = DateTime.add(DateTime.utc_now(), -40 * 86_400, :second)
+    :ets.insert(Bandera.Usage, {:billing_invoices, old_time})
+    :sys.replace_state(Bandera.Usage, fn state -> %{state | loaded?: true} end)
+
+    assert eventually(fn ->
+             html = render(live)
+             html =~ "Stale — last seen 40d ago" and not (html =~ "Usage history is loading")
+           end)
+  end
+
   test "stale flag shows ⚠ icon when Usage is running and flag is stale", %{conn: conn} do
     start_supervised!(Bandera.Usage)
     {:ok, true} = Bandera.enable(:billing_invoices)
@@ -782,5 +804,19 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     Enum.find(flag.gates, fn g ->
       g.type == type and to_string(g.for) == to_string(target)
     end)
+  end
+
+  defp eventually(fun, timeout \\ 2_000, interval \\ 10) do
+    cond do
+      fun.() ->
+        true
+
+      timeout <= 0 ->
+        false
+
+      true ->
+        Process.sleep(interval)
+        eventually(fun, timeout - interval, interval)
+    end
   end
 end

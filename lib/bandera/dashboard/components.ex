@@ -248,18 +248,24 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       """
     end
 
-    @doc "Renders an amber warning banner when Bandera.Usage is not running."
+    @doc "Renders an amber warning banner when usage history is unavailable or loading."
     attr(:theme, :atom, default: :standalone)
+    attr(:status, :atom, required: true)
 
     @spec usage_warning(map()) :: Phoenix.LiveView.Rendered.t()
     def usage_warning(assigns) do
       ~H"""
       <div class={Theme.class(@theme, :flash_warn)}>
-        Stale flag detection is unavailable. Add <code>Bandera.Usage</code> to your
-        supervision tree and call <code>Bandera.Usage.attach/0</code> at boot to enable it.
-        <a href="https://hexdocs.pm/bandera/Bandera.Usage.html" target="_blank" rel="noopener">
-          See the documentation →
-        </a>
+        <%= if @status == :loading do %>
+          Usage history is loading. Stale and never-evaluated indicators will appear once
+          persisted history is available.
+        <% else %>
+          Stale flag detection is unavailable. Add <code>Bandera.Usage</code> to your
+          supervision tree to enable it.
+          <a href="https://hexdocs.pm/bandera/Bandera.Usage.html" target="_blank" rel="noopener">
+            See the documentation →
+          </a>
+        <% end %>
       </div>
       """
     end

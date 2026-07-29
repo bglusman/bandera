@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Usage history now exposes explicit readiness, retries its initial Ecto load
+  independently of the flush interval, and keeps the dashboard from showing
+  transient "never evaluated" warnings while persisted history is loading.
+- Usage timestamps are monotonic across nodes, and periodic flushes merge
+  persisted evaluations back into each node's ETS table.
+
 ## [0.5.0] - 2026-07-14
 
 ### Added

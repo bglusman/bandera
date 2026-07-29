@@ -6,11 +6,11 @@ defmodule Bandera.Usage do
 
   When the Ecto persistence adapter is configured, evaluation history is also
   persisted to a `bandera_usage` DB table so it survives restarts and pod
-  recycling. The DB is seeded into ETS once the Repo is available, and the whole
-  ETS table is flushed back every `flush_interval` seconds (default 600 / 10
-  minutes). At 30-day stale granularity the flush cadence is irrelevant, so the
-  flush is a simple last-writer-wins upsert — no per-write bookkeeping on the
-  hot path.
+  recycling. The DB is seeded into ETS once the Repo is available, with a short
+  independent retry while the Repo is still starting. Every `flush_interval`
+  seconds (default 600 / 10 minutes), the tracker merges persisted history into
+  ETS and flushes the whole ETS table back with monotonic timestamps. This keeps
+  multiple nodes convergent without adding work to the evaluation hot path.
 
   Just add it to your supervision tree — it attaches its own telemetry handler in
   `init/1` and detaches on shutdown, so the handler's lifecycle follows the
@@ -32,6 +32,8 @@ defmodule Bandera.Usage do
   @handler {__MODULE__, :usage}
   @events [[:bandera, :enabled?], [:bandera, :variant]]
   @default_flush_interval 600
+  @default_load_retry_interval 1
+  @default_load_retry_max_interval 30
 
   # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -68,6 +70,15 @@ defmodule Bandera.Usage do
   @spec flush() :: :ok
   def flush, do: GenServer.call(__MODULE__, :flush)
 
+  @doc """
+  Returns whether persisted usage history has been loaded.
+
+  Trackers without Ecto persistence are ready immediately. This call requires
+  the Usage process to be running.
+  """
+  @spec ready?() :: boolean
+  def ready?, do: GenServer.call(__MODULE__, :ready?)
+
   # ── Telemetry handler (called from any process) ────────────────────────────
 
   @doc false
@@ -98,15 +109,20 @@ defmodule Bandera.Usage do
     detach()
     attach()
 
-    interval = flush_interval(opts)
-    # `loaded?` tracks whether we have seeded ETS from the DB yet. We may start
-    # before the host Repo (umbrella boot order), so seeding is retried on each
-    # flush tick until it succeeds rather than assumed to work at init.
-    state = %{flush_interval: interval, loaded?: false}
+    flush_interval = flush_interval(opts)
+    load_retry_interval = load_retry_interval(opts)
+    load_retry_max_interval = load_retry_max_interval(opts)
 
-    state = maybe_load_from_db(state)
-    schedule_flush(interval)
+    state = %{
+      flush_interval: flush_interval,
+      load_retry_interval: min(load_retry_interval, load_retry_max_interval),
+      load_retry_max_interval: load_retry_max_interval,
+      loaded?: not ecto_adapter?()
+    }
 
+    state = load_from_db(state)
+    state = schedule_load_retry(state)
+    schedule_flush(flush_interval)
     {:ok, state}
   end
 
@@ -123,17 +139,26 @@ defmodule Bandera.Usage do
 
   @impl true
   def handle_call(:flush, _from, state) do
-    state = maybe_load_from_db(state)
+    state = load_from_db(state)
     flush_to_db()
     {:reply, :ok, state}
   end
 
+  def handle_call(:ready?, _from, state), do: {:reply, state.loaded?, state}
+
   @impl true
   def handle_info(:flush, state) do
-    # Keep trying to seed from the DB until it sticks (Repo may boot after us).
-    state = maybe_load_from_db(state)
+    # Merge other nodes' persisted evaluations before flushing this node's
+    # in-memory values. Both directions keep the newer timestamp.
+    state = load_from_db(state)
     flush_to_db()
     schedule_flush(state.flush_interval)
+    {:noreply, state}
+  end
+
+  def handle_info(:load_from_db, state) do
+    state = load_from_db(state)
+    state = schedule_load_retry(state)
     {:noreply, state}
   end
 
@@ -142,9 +167,28 @@ defmodule Bandera.Usage do
   defp schedule_flush(interval),
     do: Process.send_after(self(), :flush, interval * 1_000)
 
-  defp db_enabled? do
+  defp schedule_load_retry(
+         %{
+           loaded?: false,
+           load_retry_interval: interval,
+           load_retry_max_interval: max_interval
+         } = state
+       ) do
+    Process.send_after(self(), :load_from_db, interval * 1_000)
+    %{state | load_retry_interval: min(interval * 2, max_interval)}
+  end
+
+  defp schedule_load_retry(state), do: state
+
+  defp ecto_adapter? do
     Config.persistence_adapter() == Bandera.Store.Persistent.Ecto and
-      Code.ensure_loaded?(Bandera.Usage.Ecto) and repo_alive?()
+      Code.ensure_loaded?(Bandera.Usage.Ecto)
+  rescue
+    _ -> false
+  end
+
+  defp db_enabled? do
+    ecto_adapter?() and repo_alive?()
   rescue
     _ -> false
   end
@@ -158,16 +202,19 @@ defmodule Bandera.Usage do
     _ -> false
   end
 
-  # Seed ETS from the DB exactly once, once the Repo is up. No-ops if already
-  # loaded or if the DB isn't available yet (retried on the next flush tick).
-  defp maybe_load_from_db(%{loaded?: true} = state), do: state
+  defp load_from_db(state) do
+    cond do
+      not ecto_adapter?() ->
+        %{state | loaded?: true}
 
-  defp maybe_load_from_db(state) do
-    if db_enabled?() do
-      Bandera.Usage.Ecto.load_into_ets(@table)
-      %{state | loaded?: true}
-    else
-      state
+      db_enabled?() ->
+        case Bandera.Usage.Ecto.load_into_ets(@table, return_errors: true) do
+          :ok -> %{state | loaded?: true}
+          {:error, _reason} -> state
+        end
+
+      true ->
+        state
     end
   end
 
@@ -180,6 +227,22 @@ defmodule Bandera.Usage do
       :bandera
       |> Application.get_env(:usage, [])
       |> Keyword.get(:flush_interval, @default_flush_interval)
+    end)
+  end
+
+  defp load_retry_interval(opts) do
+    Keyword.get_lazy(opts, :load_retry_interval, fn ->
+      :bandera
+      |> Application.get_env(:usage, [])
+      |> Keyword.get(:load_retry_interval, @default_load_retry_interval)
+    end)
+  end
+
+  defp load_retry_max_interval(opts) do
+    Keyword.get_lazy(opts, :load_retry_max_interval, fn ->
+      :bandera
+      |> Application.get_env(:usage, [])
+      |> Keyword.get(:load_retry_max_interval, @default_load_retry_max_interval)
     end)
   end
 end

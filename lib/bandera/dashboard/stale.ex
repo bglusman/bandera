@@ -11,14 +11,27 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     @spec usage_available?() :: boolean
     def usage_available?, do: not is_nil(Process.whereis(Bandera.Usage))
 
+    @doc "Returns whether usage tracking is unavailable, loading persisted history, or ready."
+    @spec usage_status() :: :unavailable | :loading | :ready
+    def usage_status do
+      cond do
+        not usage_available?() -> :unavailable
+        Bandera.Usage.ready?() -> :ready
+        true -> :loading
+      end
+    catch
+      :exit, _reason -> :unavailable
+    end
+
     @doc """
     Returns a MapSet of atom flag names considered stale.
     Passes `older_than` (days, default 30) to `Bandera.stale_flags/1`.
-    Returns an empty MapSet if Usage is not running.
+    Returns an empty MapSet if Usage is not running or persisted history is
+    still loading.
     """
     @spec stale_set(keyword) :: MapSet.t()
     def stale_set(opts \\ []) do
-      if usage_available?() do
+      if usage_status() == :ready do
         days = Keyword.get(opts, :older_than, config_older_than())
         Bandera.stale_flags(older_than: days) |> MapSet.new()
       else

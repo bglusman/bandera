@@ -67,6 +67,37 @@ defmodule Bandera.UsageEctoTest do
     assert %DateTime{} = Usage.last_evaluated(:late_seed)
   end
 
+  test "GIVEN the usage table is unavailable WHEN it becomes available THEN history loads on the fast retry" do
+    Application.put_env(:bandera, :persistence,
+      adapter: Bandera.Store.Persistent.Ecto,
+      repo: Bandera.TestRepo,
+      usage_table_name: "bandera_usage_not_ready"
+    )
+
+    Bandera.reload_config()
+    start_supervised!({Usage, flush_interval: 3600, load_retry_interval: 1})
+
+    assert :ok = Bandera.Usage.Ecto.load_into_ets(Usage)
+    refute Usage.ready?()
+
+    old_time = DateTime.add(DateTime.utc_now(), -45, :day)
+
+    Bandera.TestRepo.query!(
+      "INSERT INTO bandera_usage (flag_name, last_evaluated_at) VALUES (?, ?)",
+      ["fast_retry_seed", DateTime.to_iso8601(old_time)]
+    )
+
+    Application.put_env(:bandera, :persistence,
+      adapter: Bandera.Store.Persistent.Ecto,
+      repo: Bandera.TestRepo
+    )
+
+    Bandera.reload_config()
+
+    assert wait_until(&Usage.ready?/0, 1_500)
+    assert %DateTime{} = Usage.last_evaluated(:fast_retry_seed)
+  end
+
   test "history is loaded from DB into ETS on startup" do
     old_time = DateTime.add(DateTime.utc_now(), -45, :day)
 
@@ -132,5 +163,56 @@ defmodule Bandera.UsageEctoTest do
     Bandera.Usage.Ecto.load_into_ets(Usage)
 
     assert DateTime.compare(Usage.last_evaluated(:mem_wins), db_older) == :gt
+  end
+
+  test "GIVEN a newer persisted timestamp WHEN an older pod flushes THEN history does not regress" do
+    start_supervised!({Usage, flush_interval: 3600})
+
+    db_newer = DateTime.utc_now()
+    pod_older = DateTime.add(db_newer, -60, :second)
+
+    Bandera.TestRepo.query!(
+      "INSERT INTO bandera_usage (flag_name, last_evaluated_at) VALUES (?, ?)",
+      ["monotonic_flag", DateTime.to_iso8601(db_newer)]
+    )
+
+    :ets.insert(Usage, {:monotonic_flag, pod_older})
+    :ets.insert(Usage, {:new_flag_from_pod, pod_older})
+    :ok = Bandera.Usage.Ecto.flush_all(Usage)
+
+    persisted = Bandera.TestRepo.get!(Bandera.Usage.Record, "monotonic_flag")
+    assert DateTime.compare(persisted.last_evaluated_at, db_newer) in [:eq, :gt]
+    assert Bandera.TestRepo.get!(Bandera.Usage.Record, "new_flag_from_pod")
+  end
+
+  test "GIVEN another pod persisted newer history WHEN this pod flushes THEN ETS merges it" do
+    start_supervised!({Usage, flush_interval: 3600})
+
+    local_older = DateTime.add(DateTime.utc_now(), -60, :second)
+    remote_newer = DateTime.utc_now()
+    :ets.insert(Usage, {:shared_flag, local_older})
+
+    Bandera.TestRepo.query!(
+      "INSERT INTO bandera_usage (flag_name, last_evaluated_at) VALUES (?, ?)",
+      ["shared_flag", DateTime.to_iso8601(remote_newer)]
+    )
+
+    :ok = Usage.flush()
+
+    assert DateTime.compare(Usage.last_evaluated(:shared_flag), remote_newer) in [:eq, :gt]
+  end
+
+  defp wait_until(fun, timeout, interval \\ 10) do
+    cond do
+      fun.() ->
+        true
+
+      timeout <= 0 ->
+        false
+
+      true ->
+        Process.sleep(interval)
+        wait_until(fun, timeout - interval, interval)
+    end
   end
 end
