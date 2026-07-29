@@ -29,7 +29,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     Returns an empty MapSet if Usage is not running or persisted history is
     still loading.
     """
-    @spec stale_set(keyword) :: MapSet.t()
+    @spec stale_set(keyword) :: %MapSet{}
     def stale_set(opts \\ []) do
       if usage_status() == :ready do
         days = Keyword.get(opts, :older_than, config_older_than())
