@@ -36,6 +36,10 @@ defmodule Bandera.UsageTest do
     assert %DateTime{} = Usage.last_evaluated(:checked)
   end
 
+  test "GIVEN an in-memory tracker WHEN it starts THEN usage history is ready" do
+    assert Usage.ready?()
+  end
+
   test "re-attaches its telemetry handler after a crash and restart" do
     # Confirm tracking works before the crash.
     :telemetry.execute([:bandera, :enabled?], %{system_time: 1}, %{

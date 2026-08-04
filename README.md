@@ -306,10 +306,12 @@ defmodule MyApp.Repo.Migrations.CreateBanderaUsage do
 end
 ```
 
-`Bandera.Usage` seeds ETS from this table at startup and flushes back every 10
-minutes (configurable via `config :bandera, usage: [flush_interval: 600]`). It only
-writes to the DB when the Ecto persistence adapter is configured; with any other
-adapter it stays in-memory only.
+`Bandera.Usage` seeds ETS from this table at startup, retries every second with
+backoff while the Repo is still starting, then merges DB history into ETS and
+flushes ETS back every 10 minutes. Configure those intervals with
+`config :bandera, usage: [load_retry_interval: 1, load_retry_max_interval: 30, flush_interval: 600]`
+(seconds). It only writes to the DB when the Ecto persistence adapter is
+configured; with any other adapter it stays in-memory only.
 
 ## Prerequisites
 

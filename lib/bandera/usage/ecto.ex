@@ -3,22 +3,22 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
     @moduledoc """
     Durable DB backend for `Bandera.Usage`.
 
-    Called by `Bandera.Usage` to seed ETS from the DB once the Repo is up, and
-    periodically to flush the whole ETS table back, so evaluation history
-    survives process restarts and pod recycling.
+    Called by `Bandera.Usage` to seed ETS once the Repo is up, periodically merge
+    other nodes' persisted history, and flush the whole ETS table back so
+    evaluation history survives process restarts and pod recycling.
 
-    The flush is last-writer-wins: across multiple pods the DB row for a flag
-    ends up holding whichever pod's value was written most recently. At 30-day
-    stale-detection granularity that ~flush-interval skew is irrelevant, and on
-    startup every pod re-seeds from the DB and keeps the newer of (DB, in-memory),
-    so values only ever move forward in practice.
+    Every flush keeps the greater of the existing and incoming timestamp, so a
+    lagging pod cannot regress shared history. Trackers also periodically merge
+    the DB back into ETS so evaluations observed by other pods become visible
+    locally.
 
     The table is separate from the flags table — create it via
     `Bandera.Ecto.Migrations.up_usage/0`.
 
     Only active when `persistence: [adapter: Bandera.Store.Persistent.Ecto]`
-    is configured.  All functions silently no-op on any DB error so ETS-only
-    operation continues if the table is absent or the DB is unreachable.
+    is configured. DB errors are returned without raising so ETS-only operation
+    continues. Load errors keep `Bandera.Usage` unready while it retries
+    independently of the flush interval.
     """
 
     import Ecto.Query
@@ -28,10 +28,13 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
 
     @doc """
     Loads all rows from the DB usage table into `ets_table`, keeping whichever
-    timestamp is newer.  Called once at startup to seed in-memory history.
+    timestamp is newer. Called at startup and before periodic flushes. Pass
+    `return_errors: true` when the caller needs to distinguish a failed load
+    from a successful no-op.
     """
     @spec load_into_ets(atom) :: :ok
-    def load_into_ets(ets_table) do
+    @spec load_into_ets(atom, keyword) :: :ok | {:error, term}
+    def load_into_ets(ets_table, opts \\ []) do
       rows = repo().all(from(r in {table_name(), Record}))
 
       for %Record{flag_name: name, last_evaluated_at: db_at} <- rows do
@@ -49,12 +52,12 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
 
       :ok
     rescue
-      _ -> :ok
+      error -> if Keyword.get(opts, :return_errors, false), do: {:error, error}, else: :ok
     end
 
     @doc """
     Upserts every `{flag_name, datetime}` pair in `ets_table` into the DB,
-    replacing `last_evaluated_at` (last-writer-wins).
+    keeping the greater of the persisted and incoming timestamps.
     """
     @spec flush_all(atom) :: :ok
     def flush_all(ets_table) do
@@ -66,17 +69,31 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
         end)
 
       unless rows == [] do
+        conflict_query =
+          from(usage in {table_name(), Record},
+            update: [
+              set: [
+                last_evaluated_at:
+                  fragment(
+                    "CASE WHEN EXCLUDED.last_evaluated_at > ? THEN EXCLUDED.last_evaluated_at ELSE ? END",
+                    usage.last_evaluated_at,
+                    usage.last_evaluated_at
+                  )
+              ]
+            ]
+          )
+
         repo().insert_all(
-          table_name(),
+          {table_name(), Record},
           rows,
-          on_conflict: {:replace, [:last_evaluated_at]},
+          on_conflict: conflict_query,
           conflict_target: [:flag_name]
         )
       end
 
       :ok
     rescue
-      _ -> :ok
+      _error -> :ok
     end
 
     defp repo, do: Keyword.fetch!(Config.persistence(), :repo)

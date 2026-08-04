@@ -6,9 +6,16 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     import Bandera.Dashboard.Components
     alias Bandera.Dashboard.Theme
 
+    @usage_refresh_interval 1_000
+
     @impl true
     def mount(_params, _session, socket) do
-      if connected?(socket), do: subscribe_to_changes()
+      usage_status = Bandera.Dashboard.Stale.usage_status()
+
+      if connected?(socket) do
+        subscribe_to_changes()
+        if usage_status == :loading, do: schedule_usage_refresh()
+      end
 
       socket =
         socket
@@ -25,7 +32,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           sort: :name,
           sort_dir: :asc,
           stale_set: Bandera.Dashboard.Stale.stale_set(),
-          usage_available: Bandera.Dashboard.Stale.usage_available?(),
+          usage_status: usage_status,
           create_error: nil,
           similar_pairs: [],
           base_path: "/"
@@ -90,7 +97,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
           {@create_error}
         </div>
 
-        <.usage_warning :if={not @usage_available} theme={@theme} />
+        <.usage_warning :if={@usage_status != :ready} status={@usage_status} theme={@theme} />
 
         <.similarity_warning :if={@similar_pairs != []} pairs={@similar_pairs} theme={@theme} />
 
@@ -598,6 +605,16 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       {:noreply, refresh(socket)}
     end
 
+    def handle_info(:refresh_usage, socket) do
+      socket = refresh_usage(socket)
+
+      if socket.assigns.usage_status == :loading do
+        schedule_usage_refresh()
+      end
+
+      {:noreply, socket}
+    end
+
     def handle_info(_msg, socket), do: {:noreply, socket}
 
     # ---- assigns helpers ----
@@ -785,9 +802,13 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     defp refresh(socket) do
       socket
       |> load_flags()
-      |> assign(
+      |> refresh_usage()
+    end
+
+    defp refresh_usage(socket) do
+      assign(socket,
         stale_set: Bandera.Dashboard.Stale.stale_set(),
-        usage_available: Bandera.Dashboard.Stale.usage_available?()
+        usage_status: Bandera.Dashboard.Stale.usage_status()
       )
     end
 
@@ -805,6 +826,9 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
         _ -> :ok
       end
     end
+
+    defp schedule_usage_refresh,
+      do: Process.send_after(self(), :refresh_usage, @usage_refresh_interval)
 
     defp percentage_kind("actors"), do: {:ok, :actors}
     defp percentage_kind("time"), do: {:ok, :time}
