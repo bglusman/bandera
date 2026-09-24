@@ -23,7 +23,7 @@ defmodule Bandera.ApplicationTest do
   end
 
   test "the application seeded the Config snapshot at boot" do
-    assert is_map(:persistent_term.get({Bandera.Config, :snapshot}, nil))
+    assert %Bandera.Config{name: Bandera} = :persistent_term.get({Bandera.Config, Bandera}, nil)
   end
 
   test "end-to-end flag toggle works through the full stack" do
