@@ -48,7 +48,6 @@ defmodule NoDefaultInstanceFallbackTest do
   @pending [
     "lib/bandera/store/persistent/ecto.ex",
     "lib/bandera/ecto/migrations.ex",
-    "lib/bandera/store/persistent/redis.ex",
     "lib/bandera/notifications/phoenix_pubsub.ex",
     "lib/bandera/notifications/redis.ex",
     "lib/bandera/store/process_scoped.ex",
