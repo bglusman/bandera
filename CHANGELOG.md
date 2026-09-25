@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Multiple instances: run several isolated flag sets in one VM (e.g. one per
+  app in an umbrella). Define a facade module with `use Bandera, otp_app: ...`,
+  or start an unnamed instance with `{Bandera, name: ..., ...}`; every public
+  `Bandera` function accepts an `instance:` option (default the default
+  instance). See the new [Running Multiple Instances guide](guides/multiple_instances_guide.md).
+- Per-instance storage isolation: the Ecto adapter accepts its own
+  `ecto_table_name` and/or Postgres `prefix`, and `Bandera.Ecto.Migrations`'
+  functions accept matching `:table`/`:usage_table`/`:prefix` options. An
+  instance whose storage (repo, prefix, and table) is already claimed by
+  another running instance refuses to start (reason
+  `{:storage_conflict, id, other_instance}`).
+- The Redis persistence adapter automatically namespaces keys per instance, so
+  several instances can share one Redis connection without colliding.
+- Cache-bust notifications publish on a per-instance channel/topic
+  (`"bandera:changes"` for the default instance, `"bandera:MyApp.Flags:changes"`
+  for a named one).
+- `Bandera.Usage` can track a named instance (`{Bandera.Usage, instance: ...}`),
+  with its own Ecto usage table via `usage_table_name`.
+- `bandera_dashboard/2` accepts `instance:` to mount a dashboard bound to a
+  named instance; several dashboards can be mounted in one router.
+- `mix bandera.flags` accepts `--instance` to target a named instance.
+- `Bandera.Test`/`Bandera.Store.ProcessScoped` support testing a named
+  instance: `use Bandera.Test, instance: MyApp.Flags`, and the fully-qualified
+  helpers accept `instance:`.
+- `:telemetry` event metadata and `%Bandera.Audit.Event{}` now carry the
+  `instance` the call ran against.
+
+### Changed
+
+- The `Bandera.Store`, `Bandera.Store.Persistent`, and `Bandera.Notifications`
+  behaviours are now config-first (their callbacks take a `%Bandera.Config{}`).
+  Custom modules implementing only the old, config-less callbacks keep working
+  at runtime ("legacy"), but their `@impl` annotations now produce a compile
+  warning.
+- The dashboard's `stale_older_than` setting is read from the instance's
+  cached config; changing it with `Application.put_env/3` at runtime has no
+  effect until `Bandera.reload_config/1` is called for that instance.
+
 ### Fixed
 
 - Usage history now exposes explicit readiness, retries its initial Ecto load
