@@ -51,8 +51,6 @@ defmodule NoDefaultInstanceFallbackTest do
     "lib/bandera/store/persistent/redis.ex",
     "lib/bandera/notifications/phoenix_pubsub.ex",
     "lib/bandera/notifications/redis.ex",
-    "lib/bandera/store/process_scoped.ex",
-    "lib/bandera/test.ex",
     "lib/bandera/dashboard/flags_live.ex",
     "lib/bandera/dashboard/stale.ex",
     "lib/bandera/dashboard/components.ex",

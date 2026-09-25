@@ -10,23 +10,31 @@ if Code.ensure_loaded?(NimbleOwnership) do
     default; no global mutable store is consulted, so `async: true` tests never bleed
     into each other and flag writes never touch a database or fire notifications.
 
+    One NimbleOwnership server backs every instance that uses this store; overrides
+    are scoped per instance (keyed by the instance's `name`), so a named instance's
+    overrides are invisible to another instance in the same test process.
+
     Configure it as the active store in the test environment:
 
         # config/test.exs
         config :bandera, store: Bandera.Store.ProcessScoped
 
-    and start the ownership server once in `test/test_helper.exs` via
+    and, for a named instance:
+
+        config :my_app, MyApp.Flags, store: Bandera.Store.ProcessScoped
+
+    Either way, start the ownership server once in `test/test_helper.exs` via
     `Bandera.Test.start/0`. Per-test cleanup is automatic — NimbleOwnership monitors
     the owning process and drops its state when the test process exits.
     """
 
     @behaviour Bandera.Store
 
+    alias Bandera.Config
     alias Bandera.Flag
     alias Bandera.Gate
 
     @ownership __MODULE__
-    @key :flags
 
     @doc "Start the backing NimbleOwnership server (named after this module)."
     @spec start_link(keyword) :: GenServer.on_start()
@@ -35,24 +43,24 @@ if Code.ensure_loaded?(NimbleOwnership) do
     end
 
     @impl Bandera.Store
-    def lookup(flag_name) do
-      gates = current_flags() |> Map.get(flag_name, %{}) |> Map.values()
+    def lookup(%Config{} = conf, flag_name) do
+      gates = conf |> current_flags() |> Map.get(flag_name, %{}) |> Map.values()
       {:ok, Flag.new(flag_name, gates)}
     end
 
     @impl Bandera.Store
-    def put(flag_name, %Gate{} = gate) do
-      update(fn flags ->
+    def put(%Config{} = conf, flag_name, %Gate{} = gate) do
+      update(conf, fn flags ->
         gates = flags |> Map.get(flag_name, %{}) |> Map.put(Gate.id(gate), gate)
         Map.put(flags, flag_name, gates)
       end)
 
-      lookup(flag_name)
+      lookup(conf, flag_name)
     end
 
     @impl Bandera.Store
-    def delete(flag_name, %Gate{} = gate) do
-      update(fn flags ->
+    def delete(%Config{} = conf, flag_name, %Gate{} = gate) do
+      update(conf, fn flags ->
         gates = flags |> Map.get(flag_name, %{}) |> Map.delete(Gate.id(gate))
 
         if map_size(gates) == 0 do
@@ -62,42 +70,53 @@ if Code.ensure_loaded?(NimbleOwnership) do
         end
       end)
 
-      lookup(flag_name)
+      lookup(conf, flag_name)
     end
 
     @impl Bandera.Store
-    def delete(flag_name) do
-      update(fn flags -> Map.delete(flags, flag_name) end)
+    def delete(%Config{} = conf, flag_name) do
+      update(conf, fn flags -> Map.delete(flags, flag_name) end)
       {:ok, Flag.new(flag_name, [])}
     end
 
     @impl Bandera.Store
-    def all_flags do
-      flags = Enum.map(current_flags(), fn {name, gates} -> Flag.new(name, Map.values(gates)) end)
+    def all_flags(%Config{} = conf) do
+      flags =
+        conf
+        |> current_flags()
+        |> Enum.map(fn {name, gates} -> Flag.new(name, Map.values(gates)) end)
+
       {:ok, flags}
     end
 
     @impl Bandera.Store
-    def all_flag_names do
-      {:ok, Map.keys(current_flags())}
+    def all_flag_names(%Config{} = conf) do
+      {:ok, conf |> current_flags() |> Map.keys()}
     end
 
     # ---- NimbleOwnership plumbing ----
 
-    defp current_flags do
-      callers = [self() | Process.get(:"$callers", [])]
+    # One key per instance, so overrides for one instance never leak into another
+    # sharing the same ownership server (and the same owning process).
+    defp key(%Config{name: name}), do: {:flags, name}
 
-      case NimbleOwnership.fetch_owner(@ownership, callers, @key) do
+    defp current_flags(conf) do
+      callers = [self() | Process.get(:"$callers", [])]
+      key = key(conf)
+
+      case NimbleOwnership.fetch_owner(@ownership, callers, key) do
         {tag, owner} when tag in [:ok, :shared_owner] ->
-          @ownership |> NimbleOwnership.get_owned(owner, %{}) |> Map.get(@key, %{})
+          @ownership |> NimbleOwnership.get_owned(owner, %{}) |> Map.get(key, %{})
 
         :error ->
           %{}
       end
     end
 
-    defp update(fun) do
-      case NimbleOwnership.get_and_update(@ownership, self(), @key, fn
+    defp update(conf, fun) do
+      key = key(conf)
+
+      case NimbleOwnership.get_and_update(@ownership, self(), key, fn
              nil -> {nil, fun.(%{})}
              flags -> {nil, fun.(flags)}
            end) do
