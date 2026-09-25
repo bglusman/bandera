@@ -22,10 +22,9 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
 
     Each instance gets its own storage — never share one between two running
     instances. Give each instance either its own table (`ecto_table_name`) on a
-    shared repo, or its own Postgres schema via `prefix:` (below), or both. At
-    start time the instance's `Bandera.Instance.Registrar` calls `storage_id/1`
-    and refuses to start a second instance whose repo, prefix, and table all
-    match a running one — see `Bandera.Store.Persistent.storage_id/1`.
+    shared repo, or its own Postgres schema via `prefix:` (below), or both. The
+    adapter implements `c:Bandera.Store.Persistent.storage_id/1`, so an instance
+    whose repo, prefix, and table all match a running instance refuses to start.
 
     ## Postgres schema prefix
 
