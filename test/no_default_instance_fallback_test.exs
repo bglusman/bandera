@@ -48,11 +48,7 @@ defmodule NoDefaultInstanceFallbackTest do
   @pending [
     "lib/bandera/store/persistent/redis.ex",
     "lib/bandera/store/process_scoped.ex",
-    "lib/bandera/test.ex",
-    "lib/bandera/dashboard/flags_live.ex",
-    "lib/bandera/dashboard/stale.ex",
-    "lib/bandera/dashboard/components.ex",
-    "lib/mix/tasks/bandera.flags.ex"
+    "lib/bandera/test.ex"
   ]
 
   test "lib/ never falls back to the default instance" do
