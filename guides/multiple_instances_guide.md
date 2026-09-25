@@ -168,14 +168,14 @@ Give every instance sharing a repo either a distinct table or a distinct
 ### Redis
 
 Automatic. Each instance's keys are namespaced by its name — `bandera:flag:*`
-for the default instance, `bandera:MyApp.Flags:flag:*` for a named one — so
+for the default instance, `bandera:{MyApp.Flags}:flag:*` for a named one — so
 several instances can share one Redis connection/database without colliding.
 
 ### Notifications
 
 Automatic. Each instance publishes cache-bust notifications on its own
 channel/topic — `"bandera:changes"` for the default instance,
-`"bandera:MyApp.Flags:changes"` for a named one — so a change in one instance
+`"bandera:{MyApp.Flags}:changes"` for a named one — so a change in one instance
 never busts another instance's cache.
 
 ## Usage (stale-flag tracking) per instance
@@ -311,10 +311,13 @@ restarted.
 If you have a custom store, persistence adapter, or notifications adapter
 written before instances existed (i.e. it implements the old, config-less
 callbacks — `lookup/1` instead of `lookup/2`, and so on), it keeps working at
-runtime unchanged, against whichever instance uses it. It will, however, get a
-compile warning on its `@impl` annotations, since the behaviours are now
-config-first; see the `Bandera.Store`, `Bandera.Store.Persistent`, and
-`Bandera.Notifications` moduledocs for the current callback shapes.
+runtime unchanged, against whichever instance uses it (it can't tell instances
+apart, so give each instance its own module or migrate it). If it declares
+`@behaviour`, though, it now gets compile warnings — each new config-first
+callback is reported as not implemented, and each `@impl` on an old callback as
+unknown — which fail a `--warnings-as-errors` build. Migrate it to the
+config-first callbacks (see the `Bandera.Store`, `Bandera.Store.Persistent`, and
+`Bandera.Notifications` moduledocs), or drop its `@behaviour`/`@impl` lines.
 
 ## Worked example: an umbrella app
 

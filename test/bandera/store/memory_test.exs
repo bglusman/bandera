@@ -48,5 +48,19 @@ defmodule Bandera.Store.Persistent.MemoryTest do
     assert length(flags) == 2
   end
 
+  test "the pre-instance arities act on the default instance" do
+    {:ok, _} = Memory.put(:legacy, Gate.new(:boolean, true))
+    {:ok, _} = Memory.put(:legacy, Gate.new(:actor, %{id: 1}, true))
+    assert {:ok, %Flag{gates: [_, _]}} = Memory.get(:legacy)
+
+    assert {:ok, %Flag{gates: [%Gate{type: :boolean}]}} =
+             Memory.delete(:legacy, Gate.new(:actor, %{id: 1}, true))
+
+    assert {:ok, [:legacy]} = Memory.all_flag_names()
+    assert {:ok, [%Flag{name: :legacy}]} = Memory.all_flags()
+    assert {:ok, %Flag{gates: []}} = Memory.delete(:legacy)
+    assert {:ok, %Flag{gates: []}} = Memory.get(conf(), :legacy)
+  end
+
   defp conf, do: Bandera.Config.get()
 end

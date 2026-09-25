@@ -16,7 +16,7 @@ defmodule Bandera.Notifications do
         ]
 
   Each instance publishes on its own channel/topic (`"bandera:changes"` for the
-  default instance, `"bandera:MyApp.Flags:changes"` for a named one), so a change
+  default instance, `"bandera:{MyApp.Flags}:changes"` for a named one), so a change
   in one instance never busts another instance's cache.
 
   An adapter is started under its instance's supervisor as `{adapter, conf}` and
@@ -78,7 +78,7 @@ defmodule Bandera.Notifications do
 
   @doc """
   The channel/topic `conf`'s instance publishes changes on: `"bandera:changes"`
-  for the default instance, `"bandera:MyApp.Flags:changes"` for a named one.
+  for the default instance, `"bandera:{MyApp.Flags}:changes"` for a named one.
   """
   @spec topic(Config.t()) :: String.t()
   def topic(%Config{namespace: namespace}), do: namespace <> ":changes"

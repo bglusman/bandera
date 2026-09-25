@@ -125,9 +125,9 @@ defmodule Bandera.Store.Persistent.RedisTest do
     setup do
       cleanup = fn ->
         for name <- [:redis_inst_a, :redis_inst_b] do
-          {:ok, names} = Redix.command(@conn, ["SMEMBERS", "bandera:#{name}:flag_names"])
-          for n <- names, do: Redix.command(@conn, ["DEL", "bandera:#{name}:flag:" <> n])
-          Redix.command(@conn, ["DEL", "bandera:#{name}:flag_names"])
+          {:ok, names} = Redix.command(@conn, ["SMEMBERS", "bandera:{#{name}}:flag_names"])
+          for n <- names, do: Redix.command(@conn, ["DEL", "bandera:{#{name}}:flag:" <> n])
+          Redix.command(@conn, ["DEL", "bandera:{#{name}}:flag_names"])
         end
       end
 
@@ -155,10 +155,10 @@ defmodule Bandera.Store.Persistent.RedisTest do
       conn = Config.get(:redis_inst_a).redis_conn
 
       assert {:ok, ["namespaced"]} =
-               Redix.command(conn, ["SMEMBERS", "bandera:redis_inst_a:flag_names"])
+               Redix.command(conn, ["SMEMBERS", "bandera:{redis_inst_a}:flag_names"])
 
       assert {:ok, [_, _]} =
-               Redix.command(conn, ["HGETALL", "bandera:redis_inst_a:flag:namespaced"])
+               Redix.command(conn, ["HGETALL", "bandera:{redis_inst_a}:flag:namespaced"])
     end
 
     test "a named instance's Redis connection is its own, and works end to end" do

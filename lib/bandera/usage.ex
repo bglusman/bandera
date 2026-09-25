@@ -165,13 +165,14 @@ defmodule Bandera.Usage do
         detach(instance)
         attach(instance)
 
-        flush_interval = setting(opts, conf, :flush_interval, @default_flush_interval)
+        usage = Config.new(conf.start_opts).usage
+        flush_interval = setting(opts, usage, :flush_interval, @default_flush_interval)
 
         load_retry_interval =
-          setting(opts, conf, :load_retry_interval, @default_load_retry_interval)
+          setting(opts, usage, :load_retry_interval, @default_load_retry_interval)
 
         load_retry_max_interval =
-          setting(opts, conf, :load_retry_max_interval, @default_load_retry_max_interval)
+          setting(opts, usage, :load_retry_max_interval, @default_load_retry_max_interval)
 
         state = %{
           instance: instance,
@@ -230,19 +231,26 @@ defmodule Bandera.Usage do
 
   # ── Private helpers ─────────────────────────────────────────────────────────
 
+  # The default instance keeps the handler id it has always had.
+  defp handler_id(@default_instance), do: {__MODULE__, :usage}
   defp handler_id(instance), do: {__MODULE__, instance}
 
   defp server(instance), do: Config.get(instance).usage_server
 
   # Two trackers flushing into one usage table would mix their instances' history.
   defp claim_usage_table(conf) do
-    if ecto_adapter?(conf),
-      do: Bandera.Instance.claim_storage(Bandera.Usage.Ecto.storage_id(conf), conf.name),
-      else: :ok
+    with true <- ecto_adapter?(conf),
+         id when not is_nil(id) <- Bandera.Usage.Ecto.storage_id(conf) do
+      Bandera.Instance.claim_storage(id, conf.name)
+    else
+      _ -> :ok
+    end
   end
 
-  defp setting(opts, conf, key, default) do
-    Keyword.get_lazy(opts, key, fn -> Keyword.get(conf.usage, key, default) end)
+  # `usage:` settings are read when the tracker starts (as they always were for
+  # `config :bandera, usage: ...`), not from the possibly older stored config.
+  defp setting(opts, usage, key, default) do
+    Keyword.get_lazy(opts, key, fn -> Keyword.get(usage, key, default) end)
   end
 
   # The instance's config is re-read on every DB interaction (not cached in the

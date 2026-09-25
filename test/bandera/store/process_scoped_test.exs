@@ -76,6 +76,36 @@ defmodule Bandera.Store.ProcessScopedTest do
     assert_receive {:result, {:ok, %Flag{name: :allowed, gates: [%Gate{enabled: true}]}}}
   end
 
+  test "the default instance keeps the historical :flags ownership key (allow/4 compatibility)" do
+    {:ok, _} = ProcessScoped.put(:allowed_default, Gate.new(:boolean, true))
+    parent = self()
+
+    pid =
+      spawn(fn ->
+        receive do
+          :go -> send(parent, {:result, ProcessScoped.lookup(:allowed_default)})
+        end
+      end)
+
+    :ok = NimbleOwnership.allow(ProcessScoped, self(), pid, :flags)
+    send(pid, :go)
+    assert_receive {:result, {:ok, %Flag{gates: [%Gate{enabled: true}]}}}
+  end
+
+  test "the pre-instance arities act on the default instance" do
+    {:ok, _} = ProcessScoped.put(:legacy, Gate.new(:boolean, true))
+    {:ok, _} = ProcessScoped.put(:legacy, Gate.new(:actor, %{id: 1}, true))
+    assert {:ok, %Flag{gates: [_, _]}} = ProcessScoped.lookup(:legacy)
+    assert {:ok, %Flag{gates: [_, _]}} = ProcessScoped.lookup(Config.new(), :legacy)
+
+    assert {:ok, %Flag{gates: [%Gate{type: :boolean}]}} =
+             ProcessScoped.delete(:legacy, Gate.new(:actor, %{id: 1}, true))
+
+    assert {:ok, [:legacy]} = ProcessScoped.all_flag_names()
+    assert {:ok, [%Flag{name: :legacy}]} = ProcessScoped.all_flags()
+    assert {:ok, %Flag{gates: []}} = ProcessScoped.delete(:legacy)
+  end
+
   test "both percentage gate types share one slot (parity with Memory)", %{conf: conf} do
     {:ok, _} = ProcessScoped.put(conf, :pct, Gate.new(:percentage_of_time, 0.3))
     {:ok, flag} = ProcessScoped.put(conf, :pct, Gate.new(:percentage_of_actors, 0.7))

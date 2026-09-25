@@ -18,6 +18,7 @@ defmodule Bandera.Store.TwoLevel do
   @behaviour Bandera.Store
 
   alias Bandera.Config
+  alias Bandera.Gate
   alias Bandera.Store.Cache
   alias Bandera.Store.Persistent
 
@@ -62,6 +63,9 @@ defmodule Bandera.Store.TwoLevel do
       {:ok, flag}
     end
   end
+
+  def delete(flag_name, %Gate{} = gate) when is_atom(flag_name),
+    do: delete(Config.get(), flag_name, gate)
 
   @impl Bandera.Store
   def all_flags(%Config{} = conf) do
@@ -115,4 +119,33 @@ defmodule Bandera.Store.TwoLevel do
     do: Cache.put(conf, flag)
 
   defp refresh_cache(conf, flag_name, _flag), do: Cache.bust(conf, flag_name)
+  # ---- default-instance forms (backward compatibility) ----
+  # The pre-instance arities, acting on the default instance (the
+  # `delete(flag_name, gate)` form sits with the `delete/2` callback above).
+
+  @doc false
+
+  @spec lookup(atom) :: {:ok, Bandera.Flag.t()} | {:error, term}
+  def lookup(flag_name) when is_atom(flag_name), do: lookup(Config.get(), flag_name)
+
+  @doc false
+
+  @spec put(atom, Bandera.Gate.t()) :: {:ok, Bandera.Flag.t()} | {:error, term}
+  def put(flag_name, %Gate{} = gate) when is_atom(flag_name),
+    do: put(Config.get(), flag_name, gate)
+
+  @doc false
+
+  @spec delete(atom) :: {:ok, Bandera.Flag.t()} | {:error, term}
+  def delete(flag_name) when is_atom(flag_name), do: delete(Config.get(), flag_name)
+
+  @doc false
+
+  @spec all_flags() :: {:ok, [Bandera.Flag.t()]} | {:error, term}
+  def all_flags, do: all_flags(Config.get())
+
+  @doc false
+
+  @spec all_flag_names() :: {:ok, [atom]} | {:error, term}
+  def all_flag_names, do: all_flag_names(Config.get())
 end

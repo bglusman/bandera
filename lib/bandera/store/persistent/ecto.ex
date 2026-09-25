@@ -33,7 +33,8 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
     schema itself is not created by this adapter or by `Bandera.Ecto.Migrations`
     — create it yourself before running migrations. Leaving `prefix` unset (the
     default) uses the repo's default schema, exactly as before this option
-    existed. SQLite has no schema concept, so `prefix` has no effect there.
+    existed. SQLite has no schemas: leave `prefix` unset there (ecto_sqlite3 raises
+    on any query with a prefix).
 
     ## Concurrency note
 
@@ -203,6 +204,9 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
       {:ok, Flag.new(flag_name, [])}
     end
 
+    def delete(flag_name, %Gate{} = gate) when is_atom(flag_name),
+      do: delete(Config.get(), flag_name, gate)
+
     @impl Bandera.Store.Persistent
     def all_flags(%Config{} = conf) do
       flags =
@@ -228,7 +232,14 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
     # The repo, schema, and table `conf` points at; two running instances may not
     # share one (see `Bandera.Store.Persistent.storage_id/1`).
     @impl Bandera.Store.Persistent
-    def storage_id(%Config{} = conf), do: {__MODULE__, repo(conf), prefix(conf), table(conf)}
+    # No repo configured yet (it may be supplied later via `reload_config`): there
+    # is nothing to claim, and the instance must still start as it always has.
+    def storage_id(%Config{} = conf) do
+      case Keyword.get(conf.persistence, :repo) do
+        nil -> nil
+        repo -> {__MODULE__, repo, prefix(conf), table(conf)}
+      end
+    end
 
     defp repo(conf), do: Keyword.fetch!(conf.persistence, :repo)
     defp table(conf), do: Config.ecto_table_name(conf)
@@ -240,5 +251,35 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
         prefix -> [prefix: prefix]
       end
     end
+
+    # ---- default-instance forms (backward compatibility) ----
+    # The pre-instance arities, acting on the default instance (the
+    # `delete(flag_name, gate)` form sits with the `delete/2` callback above).
+
+    @doc false
+
+    @spec get(atom) :: {:ok, Bandera.Flag.t()} | {:error, term}
+    def get(flag_name) when is_atom(flag_name), do: get(Config.get(), flag_name)
+
+    @doc false
+
+    @spec put(atom, Bandera.Gate.t()) :: {:ok, Bandera.Flag.t()} | {:error, term}
+    def put(flag_name, %Gate{} = gate) when is_atom(flag_name),
+      do: put(Config.get(), flag_name, gate)
+
+    @doc false
+
+    @spec delete(atom) :: {:ok, Bandera.Flag.t()} | {:error, term}
+    def delete(flag_name) when is_atom(flag_name), do: delete(Config.get(), flag_name)
+
+    @doc false
+
+    @spec all_flags() :: {:ok, [Bandera.Flag.t()]} | {:error, term}
+    def all_flags, do: all_flags(Config.get())
+
+    @doc false
+
+    @spec all_flag_names() :: {:ok, [atom]} | {:error, term}
+    def all_flag_names, do: all_flag_names(Config.get())
   end
 end

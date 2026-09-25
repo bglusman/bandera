@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Redis persistence adapter automatically namespaces keys per instance, so
   several instances can share one Redis connection without colliding.
 - Cache-bust notifications publish on a per-instance channel/topic
-  (`"bandera:changes"` for the default instance, `"bandera:MyApp.Flags:changes"`
+  (`"bandera:changes"` for the default instance, `"bandera:{MyApp.Flags}:changes"`
   for a named one).
 - `Bandera.Usage` can track a named instance (`{Bandera.Usage, instance: ...}`),
   with its own Ecto usage table via `usage_table_name`.
@@ -41,11 +41,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `Bandera.Store`, `Bandera.Store.Persistent`, and `Bandera.Notifications`
   behaviours are now config-first (their callbacks take a `%Bandera.Config{}`).
   Custom modules implementing only the old, config-less callbacks keep working
-  at runtime ("legacy"), but their `@impl` annotations now produce a compile
-  warning.
+  at runtime ("legacy"), but if they declare `@behaviour` they now get compile
+  warnings (each new callback reported as not implemented, each `@impl` on an
+  old callback reported as unknown), which fail `--warnings-as-errors` builds.
+  Migrate them to the config-first callbacks, or drop `@behaviour`/`@impl`.
+  The built-in stores, adapters, and notifiers keep their old direct-call
+  arities (e.g. `Memory.put(:flag, gate)`) for the default instance.
 - The dashboard's `stale_older_than` setting is read from the instance's
   cached config; changing it with `Application.put_env/3` at runtime has no
   effect until `Bandera.reload_config/1` is called for that instance.
+- `Bandera.Config.snapshot/0` returns a `%Bandera.Config{}` struct (it still
+  supports `snapshot()[:key]` access).
+- `Bandera.Supervisor` now supervises `Bandera.Registry` and, with
+  `start_on_boot`, the default instance's own (internal) supervisor, instead of the cache, persistence, and notifier processes directly. Their
+  registered names are unchanged.
 
 ### Fixed
 

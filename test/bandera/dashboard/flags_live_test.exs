@@ -852,35 +852,27 @@ defmodule Bandera.Dashboard.FlagsLiveTest do
     @named Bandera.Dashboard.TestInstance
 
     setup do
+      # Starts the instance's real PhoenixPubSub notifier alongside the dashboard.
       start_supervised!(
-        {Bandera, name: @named, persistence: [adapter: Bandera.Store.Persistent.Memory]}
+        {Bandera,
+         name: @named,
+         persistence: [adapter: Bandera.Store.Persistent.Memory],
+         dashboard: [group_separator: "_"],
+         cache_bust_notifications: [
+           enabled: true,
+           adapter: Bandera.Notifications.PhoenixPubSub,
+           client: Bandera.Dashboard.TestPubSub
+         ]}
       )
-
-      # Enable cache-busting notifications in the instance's stored config only,
-      # rather than via start options (which would also start the
-      # Bandera.Notifications.PhoenixPubSub notifier GenServer under the
-      # instance's supervisor — that module isn't instance-aware yet, so it
-      # would read the default instance's `:client` and fail to start). This
-      # mirrors how the default-instance test above configures notifications
-      # without starting that process either.
-      Bandera.Config.new(
-        name: @named,
-        persistence: [adapter: Bandera.Store.Persistent.Memory],
-        dashboard: [group_separator: "_"],
-        cache_bust_notifications: [
-          enabled: true,
-          adapter: Bandera.Notifications.PhoenixPubSub,
-          client: Bandera.Dashboard.TestPubSub
-        ]
-      )
-      |> Bandera.Config.put()
 
       :ok
     end
 
     test "refreshes when another node broadcasts on the instance's own topic", %{conn: conn} do
       conf = Bandera.Config.get(@named)
-      assert Bandera.Notifications.topic(conf) == "bandera:Bandera.Dashboard.TestInstance:changes"
+
+      assert Bandera.Notifications.topic(conf) ==
+               "bandera:{Bandera.Dashboard.TestInstance}:changes"
 
       {:ok, live, html} = live(conn, "/other-flags")
       refute html =~ "promo_banner"

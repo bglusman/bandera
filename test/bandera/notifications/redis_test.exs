@@ -76,6 +76,11 @@ defmodule Bandera.Notifications.RedisTest do
            } = Bandera.Notifications.Redis.child_spec([])
   end
 
+  test "the pre-instance arities act on the default instance's notifier", %{conf: conf} do
+    assert RedisNotifier.unique_id() == RedisNotifier.unique_id(conf)
+    assert :ok = RedisNotifier.publish_change(:legacy)
+  end
+
   describe "multiple instances" do
     defp start_instance(name) do
       start_supervised!(
@@ -100,8 +105,8 @@ defmodule Bandera.Notifications.RedisTest do
       a = start_instance(:redis_a)
       b = start_instance(:redis_b)
 
-      assert Notifications.topic(a) == "bandera:redis_a:changes"
-      assert Notifications.topic(b) == "bandera:redis_b:changes"
+      assert Notifications.topic(a) == "bandera:{redis_a}:changes"
+      assert Notifications.topic(b) == "bandera:{redis_b}:changes"
 
       Cache.put(a, Flag.new(:f, []))
       Cache.put(b, Flag.new(:f, []))
@@ -110,22 +115,36 @@ defmodule Bandera.Notifications.RedisTest do
       Redix.command(pub, ["PUBLISH", Notifications.topic(a), "other-node:f"])
 
       wait_until(fn -> match?({:miss, _}, Cache.get(a, :f)) end)
+
+      # Fence: Redis delivers to a subscriber in publish order, so once b has handled
+      # this later message on its own channel it would already have handled the one
+      # on a's channel, had it (wrongly) been subscribed there.
+      Cache.put(b, Flag.new(:fence, []))
+      Redix.command(pub, ["PUBLISH", Notifications.topic(b), "other-node:fence"])
+      wait_until(fn -> match?({:miss, _}, Cache.get(b, :fence)) end)
+
       # b never subscribed to a's channel, so its entry survives.
       assert {:ok, _} = Cache.get(b, :f)
     end
 
     test "enable/2 publishes only on the writing instance's own channel" do
       a = start_instance(:redis_a)
-      _b = start_instance(:redis_b)
+      b = start_instance(:redis_b)
 
       {:ok, sub} = Redix.PubSub.start_link()
       {:ok, ref} = Redix.PubSub.subscribe(sub, Notifications.topic(a), self())
       assert_receive {:redix_pubsub, ^sub, ^ref, :subscribed, _meta}
+      {:ok, b_ref} = Redix.PubSub.subscribe(sub, Notifications.topic(b), self())
+      assert_receive {:redix_pubsub, ^sub, ^b_ref, :subscribed, _meta}
       wait_until(fn -> RedisNotifier.subscribed?(:redis_a) end)
 
       {:ok, _} = Bandera.enable(:f, instance: :redis_a)
 
-      assert_receive {:redix_pubsub, ^sub, _ref, :message, %{channel: "bandera:redis_a:changes"}}
+      assert_receive {:redix_pubsub, ^sub, _ref, :message,
+                      %{channel: "bandera:{redis_a}:changes"}}
+
+      refute_receive {:redix_pubsub, ^sub, _ref, :message,
+                      %{channel: "bandera:{redis_b}:changes"}}
     end
   end
 end

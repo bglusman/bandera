@@ -72,6 +72,13 @@ defmodule Bandera.Notifications.PhoenixPubSubTest do
     assert PubSubNotifier.unique_id(conf) == id
   end
 
+  test "the pre-instance arities act on the default instance's notifier", %{conf: conf} do
+    assert PubSubNotifier.unique_id() == PubSubNotifier.unique_id(conf)
+    Phoenix.PubSub.subscribe(Bandera.Test.PubSub, "bandera:changes")
+    assert :ok = PubSubNotifier.publish_change(:legacy)
+    assert_receive {:bandera_change, :legacy, _id}
+  end
+
   describe "multiple instances" do
     defp start_instance(name) do
       start_supervised!(
@@ -95,8 +102,8 @@ defmodule Bandera.Notifications.PhoenixPubSubTest do
       a = start_instance(:pubsub_a)
       b = start_instance(:pubsub_b)
 
-      assert Notifications.topic(a) == "bandera:pubsub_a:changes"
-      assert Notifications.topic(b) == "bandera:pubsub_b:changes"
+      assert Notifications.topic(a) == "bandera:{pubsub_a}:changes"
+      assert Notifications.topic(b) == "bandera:{pubsub_b}:changes"
 
       Cache.put(a, Flag.new(:f, []))
       Cache.put(b, Flag.new(:f, []))
@@ -108,6 +115,9 @@ defmodule Bandera.Notifications.PhoenixPubSubTest do
       )
 
       wait_until(fn -> match?({:miss, _}, Cache.get(a, :f)) end)
+      # Fence: the broadcast is already in b's mailbox if b (wrongly) subscribed to
+      # a's topic, so once this call returns b has handled it.
+      _ = PubSubNotifier.unique_id(b)
       # b never subscribed to a's topic, so its entry survives.
       assert {:ok, _} = Cache.get(b, :f)
     end
@@ -116,11 +126,14 @@ defmodule Bandera.Notifications.PhoenixPubSubTest do
       a = start_instance(:pubsub_a)
       b = start_instance(:pubsub_b)
 
-      Phoenix.PubSub.subscribe(Bandera.Test.PubSub, Notifications.topic(a))
+      # Listen on b's topic only: a write to a must not arrive there...
       Phoenix.PubSub.subscribe(Bandera.Test.PubSub, Notifications.topic(b))
-
       {:ok, _} = Bandera.enable(:f, instance: :pubsub_a)
+      refute_receive {:bandera_change, :f, _id}
 
+      # ...and does arrive on a's own topic.
+      Phoenix.PubSub.subscribe(Bandera.Test.PubSub, Notifications.topic(a))
+      {:ok, _} = Bandera.disable(:f, instance: :pubsub_a)
       assert_receive {:bandera_change, :f, _id}
       refute_receive {:bandera_change, :f, _id}
     end

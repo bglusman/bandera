@@ -21,8 +21,22 @@ defmodule NoDefaultInstanceFallbackTest do
        "lib/bandera/store.ex",
        "lib/bandera/store/cache.ex",
        "lib/bandera/notifications.ex",
-       "lib/bandera/usage/ecto.ex"
+       "lib/bandera/usage/ecto.ex",
+       # the pre-instance arities kept for callers outside Bandera
+       "lib/bandera/store/two_level.ex",
+       "lib/bandera/store/process_scoped.ex",
+       "lib/bandera/store/persistent/memory.ex",
+       "lib/bandera/store/persistent/ecto.ex",
+       "lib/bandera/store/persistent/redis.ex",
+       "lib/bandera/notifications/phoenix_pubsub.ex",
+       "lib/bandera/notifications/redis.ex"
      ]},
+    # Bandera itself reaches stores, adapters, and notifiers only through the
+    # config-passing dispatch in Bandera.Store / Store.Persistent / Notifications,
+    # so their default-instance compatibility arities can never be hit internally.
+    {"direct call into a built-in store, adapter, or notifier",
+     ~r/\b(TwoLevel|ProcessScoped|Persistent\.Memory|Persistent\.Ecto|Persistent\.Redis|Notifications\.Redis|PhoenixPubSub)\.(get|put|delete|lookup|all_flags|all_flag_names|publish_change|unique_id)\(/,
+     []},
     {"Bandera.Store.active/0", ~r/Store\.active\(\)/, ["lib/bandera/store.ex"]},
     {"single-argument Bandera.Store.Cache call (the default instance's cache)",
      ~r/Cache\.(get|put|bust)\([^,()]*\)|Cache\.flush\(\)/, ["lib/bandera/store/cache.ex"]},

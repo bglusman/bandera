@@ -7,7 +7,7 @@ if Code.ensure_loaded?(Redix) do
     flag names live in a set (`<namespace>:flag_names`). `<namespace>` is the
     instance's `conf.namespace` — `"bandera"` for the default instance (so its
     keys are exactly the historical `bandera:flag:<name>` / `bandera:flag_names`)
-    and `"bandera:MyApp.Flags"` for a named instance, so several instances can
+    and `"bandera:{MyApp.Flags}"` for a named instance, so several instances can
     share one Redis without colliding. The connection options are read at start
     time from the instance's `persistence: [redis: <keyword of Redix opts>]` —
     nothing is fixed at compile time.
@@ -123,6 +123,9 @@ if Code.ensure_loaded?(Redix) do
       end
     end
 
+    def delete(flag_name, %Gate{} = gate) when is_atom(flag_name),
+      do: delete(Config.get(), flag_name, gate)
+
     @impl Bandera.Store.Persistent
     def all_flag_names(%Config{} = conf) do
       case Redix.command(conf.redis_conn, ["SMEMBERS", flags_set(conf)]) do
@@ -161,5 +164,34 @@ if Code.ensure_loaded?(Redix) do
     end
 
     defp check_pipeline({:error, reason}), do: {:error, reason}
+    # ---- default-instance forms (backward compatibility) ----
+    # The pre-instance arities, acting on the default instance (the
+    # `delete(flag_name, gate)` form sits with the `delete/2` callback above).
+
+    @doc false
+
+    @spec get(atom) :: {:ok, Bandera.Flag.t()} | {:error, term}
+    def get(flag_name) when is_atom(flag_name), do: get(Config.get(), flag_name)
+
+    @doc false
+
+    @spec put(atom, Bandera.Gate.t()) :: {:ok, Bandera.Flag.t()} | {:error, term}
+    def put(flag_name, %Gate{} = gate) when is_atom(flag_name),
+      do: put(Config.get(), flag_name, gate)
+
+    @doc false
+
+    @spec delete(atom) :: {:ok, Bandera.Flag.t()} | {:error, term}
+    def delete(flag_name) when is_atom(flag_name), do: delete(Config.get(), flag_name)
+
+    @doc false
+
+    @spec all_flags() :: {:ok, [Bandera.Flag.t()]} | {:error, term}
+    def all_flags, do: all_flags(Config.get())
+
+    @doc false
+
+    @spec all_flag_names() :: {:ok, [atom]} | {:error, term}
+    def all_flag_names, do: all_flag_names(Config.get())
   end
 end

@@ -88,5 +88,21 @@ defmodule Bandera.Store.TwoLevelTest do
     assert {:ok, %{gates: [%Gate{enabled: false}]}} = TwoLevel.lookup(conf(), :f)
   end
 
+  test "the pre-instance arities act on the default instance" do
+    {:ok, flag} = TwoLevel.put(:legacy, Gate.new(:boolean, true))
+    assert {:ok, ^flag} = TwoLevel.lookup(:legacy)
+    assert {:ok, ^flag} = Memory.get(conf(), :legacy)
+
+    {:ok, _} = TwoLevel.put(:legacy, Gate.new(:actor, %{id: 1}, true))
+
+    assert {:ok, %{gates: [%Gate{type: :boolean}]}} =
+             TwoLevel.delete(:legacy, Gate.new(:actor, %{id: 1}, true))
+
+    assert {:ok, [:legacy]} = TwoLevel.all_flag_names()
+    assert {:ok, [%{name: :legacy}]} = TwoLevel.all_flags()
+    assert {:ok, %{gates: []}} = TwoLevel.delete(:legacy)
+    assert {:ok, %{gates: []}} = TwoLevel.lookup(conf(), :legacy)
+  end
+
   defp conf, do: Bandera.Config.get()
 end

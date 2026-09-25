@@ -5,7 +5,7 @@ if Code.ensure_loaded?(Redix.PubSub) do
     channel and, on a flag change published by ANOTHER node, busts that instance's
     local cache entry for that flag. Self-published changes are ignored. Each
     instance publishes on its own channel (`Bandera.Notifications.topic/1`:
-    `"bandera:changes"` for the default instance, `"bandera:MyApp.Flags:changes"`
+    `"bandera:changes"` for the default instance, `"bandera:{MyApp.Flags}:changes"`
     for a named one) and registers under its own name (`conf.notifier`:
     `#{inspect(__MODULE__)}` for the default instance). Connection options are
     read at runtime from `conf.notifications[:redis]` (`config :bandera,
@@ -70,6 +70,17 @@ if Code.ensure_loaded?(Redix.PubSub) do
     def unique_id(%Config{notifier: notifier}) do
       GenServer.call(notifier, :unique_id)
     end
+
+    # Pre-instance arities, acting on the default instance (backward compatibility).
+    @doc false
+    @spec publish_change(atom) :: :ok | {:error, term}
+    def publish_change(flag_name) when is_atom(flag_name),
+      do: publish_change(Config.get(), flag_name)
+
+    @doc false
+
+    @spec unique_id() :: String.t()
+    def unique_id, do: unique_id(Config.get())
 
     @doc "Whether the default instance's Redis subscription has been confirmed (useful in tests)."
     @spec subscribed?() :: boolean

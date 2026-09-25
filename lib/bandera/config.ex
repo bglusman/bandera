@@ -45,6 +45,10 @@ defmodule Bandera.Config do
   @default_notifications [enabled: false, adapter: Bandera.Notifications.Redis]
   @default_dashboard [group_separator: "_", theme: :standalone]
 
+  # Access (`conf[:store]`) keeps working code written against the plain-map
+  # snapshot `snapshot/0` used to return.
+  @behaviour Access
+
   @enforce_keys [:name]
   defstruct name: @default_instance,
             otp_app: nil,
@@ -80,8 +84,8 @@ defmodule Bandera.Config do
   names. The default instance keeps Bandera's historical names (the ETS table
   `Bandera.Store.Cache`, the Redis keys `bandera:flag:*`, the `"bandera:changes"`
   topic, ...); a named instance `MyApp.Flags` scopes them
-  (`MyApp.Flags.Bandera.Store.Cache`, `bandera:MyApp.Flags:flag:*`,
-  `"bandera:MyApp.Flags:changes"`, ...). `namespace` is the prefix for such
+  (`MyApp.Flags.Bandera.Store.Cache`, `bandera:{MyApp.Flags}:flag:*`,
+  `"bandera:{MyApp.Flags}:changes"`, ...). `namespace` is the prefix for such
   shared, external resource names.
 
   The `*_legacy?` fields mark a store, persistence adapter, or notifier written
@@ -193,6 +197,16 @@ defmodule Bandera.Config do
   @spec snapshot() :: t
   def snapshot, do: get(@default_instance)
 
+  @impl Access
+  def fetch(%__MODULE__{} = conf, key), do: Map.fetch(conf, key)
+
+  @impl Access
+  def get_and_update(%__MODULE__{} = conf, key, fun), do: Map.get_and_update(conf, key, fun)
+
+  @impl Access
+  def pop(%__MODULE__{}, key),
+    do: raise(ArgumentError, "cannot pop #{inspect(key)} from a %Bandera.Config{}")
+
   # ---- default-instance accessors (backward compatibility) ----
 
   @doc "The default instance's active store module (default `Bandera.Store.TwoLevel`)."
@@ -257,7 +271,9 @@ defmodule Bandera.Config do
 
   # The default instance reads `config :bandera, <key>`; a named instance reads
   # `config <otp_app>, <name>, <key>` when it has an :otp_app. Explicit start
-  # options win over application env in both cases.
+  # options win over application env in both cases, merged one level deep so
+  # `persistence: [ecto_table_name: "x"]` refines the env's persistence settings
+  # instead of silently replacing them (and dropping the adapter/repo).
   defp settings(name, opts) do
     env =
       cond do
@@ -268,7 +284,11 @@ defmodule Bandera.Config do
 
     env
     |> Keyword.take(@settings)
-    |> Keyword.merge(Keyword.take(opts, @settings))
+    |> Keyword.merge(Keyword.take(opts, @settings), fn _key, from_env, explicit ->
+      if Keyword.keyword?(from_env) and Keyword.keyword?(explicit),
+        do: Keyword.merge(from_env, explicit),
+        else: explicit
+    end)
   end
 
   defp build(name, opts, settings) do
@@ -320,8 +340,12 @@ defmodule Bandera.Config do
   defp scoped(@default_instance, module), do: module
   defp scoped(name, module), do: Module.concat(name, module)
 
+  # Braces keep a named instance's names disjoint from the default instance's
+  # (whose Redis keys are `bandera:flag:<name>` — an instance named `:flag` must
+  # not produce the same strings), and put all of an instance's Redis keys in one
+  # Redis Cluster hash slot.
   defp namespace(@default_instance), do: "bandera"
-  defp namespace(name), do: "bandera:" <> instance_key(name)
+  defp namespace(name), do: "bandera:{" <> instance_key(name) <> "}"
 
   # `MyApp.Flags` -> "MyApp.Flags"; `:my_flags` -> "my_flags".
   defp instance_key(name), do: name |> Atom.to_string() |> String.replace_prefix("Elixir.", "")

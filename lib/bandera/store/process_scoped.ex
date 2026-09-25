@@ -79,6 +79,9 @@ if Code.ensure_loaded?(NimbleOwnership) do
       {:ok, Flag.new(flag_name, [])}
     end
 
+    def delete(flag_name, %Gate{} = gate) when is_atom(flag_name),
+      do: delete(Config.get(), flag_name, gate)
+
     @impl Bandera.Store
     def all_flags(%Config{} = conf) do
       flags =
@@ -97,7 +100,11 @@ if Code.ensure_loaded?(NimbleOwnership) do
     # ---- NimbleOwnership plumbing ----
 
     # One key per instance, so overrides for one instance never leak into another
-    # sharing the same ownership server (and the same owning process).
+    # sharing the same ownership server (and the same owning process). The default
+    # instance keeps the historical `:flags` key, so existing
+    # `NimbleOwnership.allow(Bandera.Store.ProcessScoped, owner, pid, :flags)` calls
+    # still share its overrides.
+    defp key(%Config{name: Bandera}), do: :flags
     defp key(%Config{name: name}), do: {:flags, name}
 
     defp current_flags(conf) do
@@ -124,5 +131,35 @@ if Code.ensure_loaded?(NimbleOwnership) do
         {:error, error} -> raise "Bandera.Store.ProcessScoped write failed: #{inspect(error)}"
       end
     end
+
+    # ---- default-instance forms (backward compatibility) ----
+    # The pre-instance arities, acting on the default instance (the
+    # `delete(flag_name, gate)` form sits with the `delete/2` callback above).
+
+    @doc false
+
+    @spec lookup(atom) :: {:ok, Bandera.Flag.t()} | {:error, term}
+    def lookup(flag_name) when is_atom(flag_name), do: lookup(Config.get(), flag_name)
+
+    @doc false
+
+    @spec put(atom, Bandera.Gate.t()) :: {:ok, Bandera.Flag.t()} | {:error, term}
+    def put(flag_name, %Gate{} = gate) when is_atom(flag_name),
+      do: put(Config.get(), flag_name, gate)
+
+    @doc false
+
+    @spec delete(atom) :: {:ok, Bandera.Flag.t()} | {:error, term}
+    def delete(flag_name) when is_atom(flag_name), do: delete(Config.get(), flag_name)
+
+    @doc false
+
+    @spec all_flags() :: {:ok, [Bandera.Flag.t()]} | {:error, term}
+    def all_flags, do: all_flags(Config.get())
+
+    @doc false
+
+    @spec all_flag_names() :: {:ok, [atom]} | {:error, term}
+    def all_flag_names, do: all_flag_names(Config.get())
   end
 end

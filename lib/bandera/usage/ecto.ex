@@ -107,10 +107,15 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
     def flush_all(ets_table) when is_atom(ets_table), do: flush_all(Config.get(), ets_table)
 
     @doc false
-    # The usage table `conf` flushes into; two trackers may not share one.
-    @spec storage_id(Config.t()) :: term
-    def storage_id(%Config{} = conf),
-      do: {__MODULE__, repo(conf), prefix(conf), table_name(conf)}
+    # The usage table `conf` flushes into; two trackers may not share one. `nil`
+    # when no repo is configured yet (nothing to claim).
+    @spec storage_id(Config.t()) :: term | nil
+    def storage_id(%Config{} = conf) do
+      case Keyword.get(conf.persistence, :repo) do
+        nil -> nil
+        repo -> {__MODULE__, repo, prefix(conf), table_name(conf)}
+      end
+    end
 
     defp repo(conf), do: Keyword.fetch!(conf.persistence, :repo)
 

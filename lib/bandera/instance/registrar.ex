@@ -15,8 +15,13 @@ defmodule Bandera.Instance.Registrar do
   def start_link(%Config{} = conf), do: GenServer.start_link(__MODULE__, conf)
 
   @impl GenServer
-  def init(%Config{name: name} = conf) do
+  def init(%Config{name: name, start_opts: start_opts}) do
     Process.flag(:trap_exit, true)
+
+    # Rebuild from the start options (rather than reusing the config the instance
+    # was started with) so that, if this process is ever restarted, it republishes
+    # the current settings instead of undoing a `Bandera.reload_config/1`.
+    conf = Config.new(start_opts)
 
     case claim(conf) do
       :ok ->

@@ -34,7 +34,7 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
     still loading.
     """
     @spec stale_set(atom, keyword) :: %MapSet{}
-    def stale_set(instance, opts \\ []) do
+    def stale_set(instance, opts) do
       if usage_status(instance) == :ready do
         days = Keyword.get(opts, :older_than, config_older_than(instance))
         Bandera.stale_flags(older_than: days, instance: instance) |> MapSet.new()
@@ -66,5 +66,29 @@ if Code.ensure_loaded?(Phoenix.LiveView) do
       |> Map.fetch!(:dashboard)
       |> Keyword.get(:stale_older_than, @default_older_than)
     end
+
+    # ---- default-instance forms (backward compatibility) ----
+
+    @doc false
+
+    @spec usage_available?() :: boolean
+    def usage_available?, do: usage_available?(Bandera.Config.default_instance())
+
+    @doc false
+
+    @spec usage_status() :: :unavailable | :loading | :ready
+    def usage_status, do: usage_status(Bandera.Config.default_instance())
+
+    @doc "The default instance's stale set (with `opts`), or `instance`'s. See `stale_set/2`."
+    @spec stale_set(keyword | atom) :: %MapSet{}
+    def stale_set(opts_or_instance \\ [])
+    def stale_set(opts) when is_list(opts), do: stale_set(Bandera.Config.default_instance(), opts)
+    def stale_set(instance) when is_atom(instance), do: stale_set(instance, [])
+
+    @doc false
+
+    @spec age_days(atom) :: {:ok, non_neg_integer} | :never
+    def age_days(flag_name) when is_atom(flag_name),
+      do: age_days(Bandera.Config.default_instance(), flag_name)
   end
 end

@@ -811,7 +811,13 @@ defmodule Bandera do
   end
 
   # The default instance has always read `config :bandera, auto_create:` live (no
-  # reload needed); keep that. Named instances use their config.
-  defp auto_create?(%Config{name: Bandera}), do: Application.get_env(:bandera, :auto_create, true)
+  # reload needed); keep that unless it was started with an explicit
+  # `auto_create:` option. Named instances use their config.
+  defp auto_create?(%Config{name: Bandera, start_opts: start_opts} = conf) do
+    if Keyword.has_key?(start_opts, :auto_create),
+      do: conf.auto_create,
+      else: Application.get_env(:bandera, :auto_create, true)
+  end
+
   defp auto_create?(%Config{auto_create: auto_create}), do: auto_create
 end

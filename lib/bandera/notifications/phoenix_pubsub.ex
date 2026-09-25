@@ -5,7 +5,7 @@ if Code.ensure_loaded?(Phoenix.PubSub) do
     on a flag change broadcast by ANOTHER node, busts that instance's local cache
     entry. Self-published changes are ignored. Each instance publishes on its own
     topic (`Bandera.Notifications.topic/1`: `"bandera:changes"` for the default
-    instance, `"bandera:MyApp.Flags:changes"` for a named one) and registers under
+    instance, `"bandera:{MyApp.Flags}:changes"` for a named one) and registers under
     its own name (`conf.notifier`: `#{inspect(__MODULE__)}` for the default
     instance). The PubSub server is read at runtime from `conf.notifications[:client]`
     (`config :bandera, cache_bust_notifications: [client: MyApp.PubSub]` for the
@@ -64,6 +64,17 @@ if Code.ensure_loaded?(Phoenix.PubSub) do
     def unique_id(%Config{notifier: notifier}) do
       GenServer.call(notifier, :unique_id)
     end
+
+    # Pre-instance arities, acting on the default instance (backward compatibility).
+    @doc false
+    @spec publish_change(atom) :: :ok | {:error, term}
+    def publish_change(flag_name) when is_atom(flag_name),
+      do: publish_change(Config.get(), flag_name)
+
+    @doc false
+
+    @spec unique_id() :: String.t()
+    def unique_id, do: unique_id(Config.get())
 
     @impl GenServer
     def init({%Config{} = conf, _opts}) do

@@ -192,8 +192,8 @@ defmodule Bandera.MultiInstanceTest do
       assert named.cache_table == MyApp.Flags.Bandera.Store.Cache
       assert named.memory_table == MyApp.Flags.Bandera.Store.Persistent.Memory
       assert named.usage_server == MyApp.Flags.Bandera.Usage
-      assert named.namespace == "bandera:MyApp.Flags"
-      assert Config.new(name: :plain).namespace == "bandera:plain"
+      assert named.namespace == "bandera:{MyApp.Flags}"
+      assert Config.new(name: :plain).namespace == "bandera:{plain}"
     end
 
     test "the registrar re-claims storage after a crash (dead-owner race)" do
@@ -214,6 +214,53 @@ defmodule Bandera.MultiInstanceTest do
 
       assert Process.alive?(sup)
       assert {:ok, _} = Bandera.enable(:still_works, instance: :crashy)
+    end
+  end
+
+  describe "the default instance started as an instance" do
+    setup do
+      on_exit(fn ->
+        Application.delete_env(:bandera, :persistence)
+        Bandera.reload_config()
+      end)
+
+      :ok
+    end
+
+    test "runs under its historical names, and publishes then erases its config" do
+      start_supervised!(Bandera)
+
+      assert Process.whereis(Bandera.Store.Cache)
+      assert Process.whereis(Memory)
+      assert %Config{name: Bandera} = :persistent_term.get({Config, Bandera}, nil)
+      assert {:ok, true} = Bandera.enable(:boot_default)
+      assert Bandera.enabled?(:boot_default)
+
+      :ok = stop_supervised!(Bandera)
+      assert :persistent_term.get({Config, Bandera}, :erased) == :erased
+      # ...and is lazily reseeded from application env on next use.
+      assert %Config{name: Bandera} = Config.get()
+    end
+
+    test "starts with the Ecto adapter even before a repo is configured" do
+      Application.put_env(:bandera, :persistence, adapter: Bandera.Store.Persistent.Ecto)
+      Bandera.reload_config()
+
+      start_supervised!(Bandera)
+      start_supervised!(Bandera.Usage)
+      refute Bandera.Usage.ready?()
+    end
+
+    test "an explicit auto_create: false start option is honored" do
+      start_supervised!({Bandera, auto_create: false})
+
+      refute Bandera.enabled?(:not_auto_created)
+      assert {:ok, []} = Bandera.all_flag_names()
+    end
+
+    test "its config still supports map-style access (the old snapshot was a map)" do
+      assert Config.snapshot()[:store] == Bandera.Store.TwoLevel
+      assert Config.get()[:name] == Bandera
     end
   end
 
@@ -272,11 +319,13 @@ defmodule Bandera.MultiInstanceTest do
       refute Flags.enabled?(:facade_flag)
     end
 
-    test "child_spec options override otp_app config; the facade's name always wins" do
-      Application.put_env(@otp_app, Flags, cache: [ttl: 42])
+    test "child_spec options override otp_app config (one level deep); the facade's name always wins" do
+      Application.put_env(@otp_app, Flags, cache: [ttl: 42, enabled: false])
       start_supervised!({Flags, cache: [ttl: 7], name: :ignored})
 
       assert Config.get(Flags).cache_ttl == 7
+      # the explicit `cache:` refines the env's `cache:` instead of replacing it
+      refute Config.get(Flags).cache_enabled?
       assert_raise ArgumentError, fn -> Config.get(:ignored) end
     end
 
@@ -286,6 +335,19 @@ defmodule Bandera.MultiInstanceTest do
 
       Application.put_env(@otp_app, Flags, cache: [ttl: 99])
       assert :ok = Flags.reload_config()
+      assert Config.get(Flags).cache_ttl == 99
+    end
+
+    test "a restarted registrar republishes the current (reloaded) settings" do
+      Application.put_env(@otp_app, Flags, cache: [ttl: 42])
+      start_supervised!(Flags)
+      Application.put_env(@otp_app, Flags, cache: [ttl: 99])
+      :ok = Flags.reload_config()
+
+      registrar = registrar_pid(Flags)
+      Process.exit(registrar, :kill)
+      assert wait_until(fn -> registrar_pid(Flags) not in [nil, registrar] end)
+
       assert Config.get(Flags).cache_ttl == 99
     end
 
@@ -389,6 +451,17 @@ defmodule Bandera.MultiInstanceTest do
       assert {:ok, %Bandera.Flag{gates: [_]}} = Bandera.LegacyPersistence.get(:lp)
       assert {:ok, [:lp]} = Bandera.all_flag_names(instance: :legacy_persist)
     end
+  end
+
+  defp registrar_pid(instance) do
+    instance
+    |> Config.get()
+    |> Map.fetch!(:supervisor)
+    |> Supervisor.which_children()
+    |> Enum.find_value(fn
+      {Bandera.Instance.Registrar, pid, _, _} when is_pid(pid) -> pid
+      _ -> nil
+    end)
   end
 
   defp wait_until(fun, timeout \\ 1_000) do
