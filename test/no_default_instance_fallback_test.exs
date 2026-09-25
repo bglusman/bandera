@@ -46,7 +46,6 @@ defmodule NoDefaultInstanceFallbackTest do
   # Files not yet converted to instance-aware code. Remove a file from this list
   # when converting it; the list must be empty when multi-instance work is done.
   @pending [
-    "lib/bandera/store/persistent/redis.ex",
     "lib/bandera/store/process_scoped.ex",
     "lib/bandera/test.ex"
   ]
