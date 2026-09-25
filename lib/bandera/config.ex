@@ -132,13 +132,18 @@ defmodule Bandera.Config do
   @doc """
   Build an instance config from start options, without storing it.
 
-  Accepts `:name` (default `Bandera`), `:otp_app`, and the settings keys
-  `:store`, `:cache`, `:persistence`, `:cache_bust_notifications`, `:dashboard`,
-  `:auto_create`, and `:usage`. Raises `ArgumentError` on unknown options.
+  Accepts `:name` (default `Bandera`), `:otp_app`, `:defaults`, and the settings
+  keys `:store`, `:cache`, `:persistence`, `:cache_bust_notifications`,
+  `:dashboard`, `:auto_create`, and `:usage`. Raises `ArgumentError` on unknown
+  options.
+
+  Settings are merged, one level deep, from lowest to highest precedence:
+  `:defaults` (a keyword list of settings, e.g. an embeddable library's own
+  storage config), then application env, then the explicit settings options.
   """
   @spec new(keyword) :: t
   def new(opts \\ []) do
-    opts = Keyword.validate!(opts, [:otp_app, name: @default_instance] ++ @settings)
+    opts = Keyword.validate!(opts, [:otp_app, :defaults, name: @default_instance] ++ @settings)
     name = Keyword.fetch!(opts, :name)
 
     unless is_atom(name) and not is_nil(name) and not is_boolean(name) do
@@ -269,12 +274,15 @@ defmodule Bandera.Config do
 
   # ---- building ----
 
-  # The default instance reads `config :bandera, <key>`; a named instance reads
-  # `config <otp_app>, <name>, <key>` when it has an :otp_app. Explicit start
-  # options win over application env in both cases, merged one level deep so
-  # `persistence: [ecto_table_name: "x"]` refines the env's persistence settings
-  # instead of silently replacing them (and dropping the adapter/repo).
+  # Lowest to highest precedence: `:defaults`, then application env (the default
+  # instance reads `config :bandera, <key>`; a named instance reads
+  # `config <otp_app>, <name>, <key>` when it has an :otp_app), then explicit
+  # start options. Merged one level deep so `persistence: [ecto_table_name: "x"]`
+  # refines the lower layer's persistence settings instead of silently replacing
+  # them (and dropping the adapter/repo).
   defp settings(name, opts) do
+    defaults = Keyword.validate!(Keyword.get(opts, :defaults, []), @settings)
+
     env =
       cond do
         name == @default_instance -> Application.get_all_env(:bandera)
@@ -282,12 +290,16 @@ defmodule Bandera.Config do
         true -> []
       end
 
-    env
-    |> Keyword.take(@settings)
-    |> Keyword.merge(Keyword.take(opts, @settings), fn _key, from_env, explicit ->
-      if Keyword.keyword?(from_env) and Keyword.keyword?(explicit),
-        do: Keyword.merge(from_env, explicit),
-        else: explicit
+    defaults
+    |> merge_settings(Keyword.take(env, @settings))
+    |> merge_settings(Keyword.take(opts, @settings))
+  end
+
+  defp merge_settings(lower, higher) do
+    Keyword.merge(lower, higher, fn _key, low, high ->
+      if Keyword.keyword?(low) and Keyword.keyword?(high),
+        do: Keyword.merge(low, high),
+        else: high
     end)
   end
 

@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `bandera_dashboard/2` accepts `instance:` to mount a dashboard bound to a
   named instance; several dashboards can be mounted in one router.
 - `mix bandera.flags` accepts `--instance` to target a named instance.
+- `use Bandera, defaults: [...]` lets an embeddable library ship its
+  instance's settings (lowest precedence, below application env and explicit
+  child options), so a host overrides only what it needs instead of mirroring
+  the library's config.
 - `Bandera.Test`/`Bandera.Store.ProcessScoped` support testing a named
   instance: `use Bandera.Test, instance: MyApp.Flags`, and the fully-qualified
   helpers accept `instance:`.

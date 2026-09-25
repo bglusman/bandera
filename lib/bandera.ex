@@ -55,14 +55,36 @@ defmodule Bandera do
   (the same keys as `config :bandera`), with any options given to `child_spec/1`
   taking precedence. `:otp_app` is optional; without it only the child spec
   options are used.
+
+  `:defaults` sets the instance's lowest-precedence settings, below application
+  env. It suits a library meant to be embedded in other applications: the
+  library ships its own storage and notification settings, and an embedding
+  host overrides only what it must (e.g. a test store) via
+  `config :the_library, TheLibrary.Flags, ...`, without having to mirror the rest:
+
+      defmodule MyLib.Flags do
+        use Bandera,
+          otp_app: :my_lib,
+          defaults: [
+            persistence: [adapter: Bandera.Store.Persistent.Ecto, repo: MyLib.Repo,
+                          prefix: "my_lib"]
+          ]
+      end
   """
   defmacro __using__(opts) do
     otp_app = Keyword.get(opts, :otp_app)
+    defaults = Keyword.get(opts, :defaults, [])
 
-    quote bind_quoted: [otp_app: otp_app] do
-      # Only the app name is fixed at compile time; its env is read when the
-      # instance starts (Bandera never uses compile-time config).
-      @bandera_base_opts if(otp_app, do: [otp_app: otp_app], else: [])
+    quote bind_quoted: [otp_app: otp_app, defaults: defaults] do
+      # Only the app name and the module's own default settings are fixed at
+      # compile time; application env is read when the instance starts (Bandera
+      # never uses compile-time config).
+      @bandera_defaults defaults
+      @bandera_base_opts if(otp_app, do: [otp_app: otp_app], else: []) ++ [defaults: defaults]
+
+      @doc false
+      # The settings this module ships as its instance's lowest-precedence layer.
+      def __bandera_defaults__, do: @bandera_defaults
 
       @doc "Child spec for this module's Bandera instance. See `Bandera.child_spec/1`."
       @spec child_spec(keyword) :: Supervisor.child_spec()

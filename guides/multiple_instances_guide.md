@@ -91,6 +91,39 @@ config :bandera, start_on_boot: false
 (The `Bandera.Registry` that tracks storage claims across instances always
 starts, regardless of this setting.)
 
+### Libraries meant to be embedded
+
+An application that is itself embedded in other applications (a dependency
+whose LiveViews a host mounts, say) can ship its instance's settings with the
+module instead of asking every host to copy them into its config — a host never
+loads a dependency's `config/*.exs`:
+
+```elixir
+defmodule MyLib.Flags do
+  use Bandera,
+    otp_app: :my_lib,
+    defaults: [
+      persistence: [adapter: Bandera.Store.Persistent.Ecto, repo: MyLib.Repo,
+                    prefix: "my_lib"],
+      cache_bust_notifications: [enabled: true, adapter: Bandera.Notifications.PhoenixPubSub,
+                                 client: MyLib.Flags.PubSub]
+    ]
+end
+```
+
+`defaults:` is the lowest-precedence layer: application env
+(`config :my_lib, MyLib.Flags, ...` — in the library's own config or a host's)
+refines it one level deep, and explicit `child_spec/1` options refine that. A
+host therefore overrides only what it must, typically its test store:
+
+```elixir
+# the host's config/test.exs
+config :my_lib, MyLib.Flags, store: Bandera.Store.ProcessScoped
+```
+
+`MyLib.Flags.__bandera_defaults__/0` returns the shipped defaults, e.g. for a
+host test asserting that the library's storage differs from the host's own.
+
 ## Calling an instance
 
 Through the facade module, no `instance:` needed:

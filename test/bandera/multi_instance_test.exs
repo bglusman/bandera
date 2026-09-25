@@ -17,6 +17,12 @@ defmodule Bandera.MultiInstanceTest do
     use Bandera
   end
 
+  defmodule DefaultedFlags do
+    use Bandera,
+      otp_app: :bandera_multi_instance_test,
+      defaults: [cache: [ttl: 11, enabled: false], auto_create: false]
+  end
+
   setup do
     # The default instance is not started in the test env (start_on_boot: false);
     # make that an explicit precondition of every test here.
@@ -364,6 +370,34 @@ defmodule Bandera.MultiInstanceTest do
       start_supervised!({BareFlags, cache: [ttl: 5]})
       assert Config.get(BareFlags).cache_ttl == 5
       assert {:ok, true} = BareFlags.enable(:bare)
+    end
+
+    test "defaults are the lowest layer; env and child options refine them one level deep" do
+      on_exit(fn -> Application.delete_env(@otp_app, DefaultedFlags) end)
+
+      assert DefaultedFlags.__bandera_defaults__() ==
+               [cache: [ttl: 11, enabled: false], auto_create: false]
+
+      start_supervised!(DefaultedFlags)
+      conf = Config.get(DefaultedFlags)
+      assert {conf.cache_ttl, conf.cache_enabled?, conf.auto_create} == {11, false, false}
+
+      # env overrides the defaults' ttl but keeps their `enabled: false`
+      Application.put_env(@otp_app, DefaultedFlags, cache: [ttl: 22])
+      :ok = DefaultedFlags.reload_config()
+      conf = Config.get(DefaultedFlags)
+      assert {conf.cache_ttl, conf.cache_enabled?, conf.auto_create} == {22, false, false}
+
+      stop_supervised!(DefaultedFlags)
+      start_supervised!({DefaultedFlags, cache: [ttl: 33]})
+      conf = Config.get(DefaultedFlags)
+      assert {conf.cache_ttl, conf.cache_enabled?} == {33, false}
+    end
+
+    test "defaults with unknown settings are rejected" do
+      assert_raise ArgumentError, ~r/unknown keys \[:persistance\]/, fn ->
+        Config.new(name: :bad_defaults, defaults: [persistance: []])
+      end
     end
   end
 
