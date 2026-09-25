@@ -47,8 +47,6 @@ defmodule NoDefaultInstanceFallbackTest do
   # when converting it; the list must be empty when multi-instance work is done.
   @pending [
     "lib/bandera/store/persistent/redis.ex",
-    "lib/bandera/notifications/phoenix_pubsub.ex",
-    "lib/bandera/notifications/redis.ex",
     "lib/bandera/store/process_scoped.ex",
     "lib/bandera/test.ex",
     "lib/bandera/dashboard/flags_live.ex",
