@@ -43,17 +43,9 @@ defmodule NoDefaultInstanceFallbackTest do
      ]}
   ]
 
-  # Files not yet converted to instance-aware code. Remove a file from this list
-  # when converting it; the list must be empty when multi-instance work is done.
-  @pending [
-    "lib/bandera/store/process_scoped.ex",
-    "lib/bandera/test.ex"
-  ]
-
   test "lib/ never falls back to the default instance" do
     offenses =
       for path <- Path.wildcard("lib/**/*.ex"),
-          path not in @pending,
           {line, number} <- path |> File.read!() |> String.split("\n") |> Enum.with_index(1),
           not String.starts_with?(String.trim_leading(line), "#"),
           not String.contains?(line, "iex>"),
