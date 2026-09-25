@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Per-instance storage isolation: the Ecto adapter accepts its own
   `ecto_table_name` and/or Postgres `prefix`, and `Bandera.Ecto.Migrations`'
   functions accept matching `:table`/`:usage_table`/`:prefix` options. An
-  instance whose storage (repo, prefix, and table) is already claimed by
+  instance whose storage (database, prefix, and table — the database identified
+  by host, port, and name, whichever repo module points at it) is already claimed by
   another running instance refuses to start (reason
   `{:storage_conflict, id, other_instance}`).
 - The Redis persistence adapter automatically namespaces keys per instance, so

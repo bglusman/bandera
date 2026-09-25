@@ -24,7 +24,9 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
     instances. Give each instance either its own table (`ecto_table_name`) on a
     shared repo, or its own Postgres schema via `prefix:` (below), or both. The
     adapter implements `c:Bandera.Store.Persistent.storage_id/1`, so an instance
-    whose repo, prefix, and table all match a running instance refuses to start.
+    whose database, prefix, and table all match a running instance refuses to
+    start. The database is identified by the repo's host, port, and database
+    name, so two repo modules pointed at the same database count as one.
 
     ## Postgres schema prefix
 
@@ -229,16 +231,34 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
     end
 
     @doc false
-    # The repo, schema, and table `conf` points at; two running instances may not
-    # share one (see `Bandera.Store.Persistent.storage_id/1`).
+    # The database, schema, and table `conf` points at; two running instances may
+    # not share one (see `Bandera.Store.Persistent.storage_id/1`).
     @impl Bandera.Store.Persistent
     # No repo configured yet (it may be supplied later via `reload_config`): there
     # is nothing to claim, and the instance must still start as it always has.
     def storage_id(%Config{} = conf) do
       case Keyword.get(conf.persistence, :repo) do
         nil -> nil
-        repo -> {__MODULE__, repo, prefix(conf), table(conf)}
+        repo -> {__MODULE__, database_location(repo), prefix(conf), table(conf)}
       end
+    end
+
+    @doc false
+    # The physical database `repo` points at, so that two repo modules configured
+    # against the same database — e.g. a host app's repo and an embedded app's —
+    # are recognized as the same storage. Falls back to the repo module itself
+    # when its runtime config can't be read or names no database.
+    @spec database_location(module) :: {String.t(), String.t(), String.t()} | module
+    def database_location(repo) do
+      config = repo.config()
+      host = config[:hostname] || config[:socket_dir] || config[:socket] || ""
+
+      case to_string(config[:database] || "") do
+        "" -> repo
+        database -> {String.downcase(to_string(host)), to_string(config[:port] || ""), database}
+      end
+    rescue
+      _ -> repo
     end
 
     defp repo(conf), do: Keyword.fetch!(conf.persistence, :repo)

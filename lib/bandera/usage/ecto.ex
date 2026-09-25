@@ -112,8 +112,12 @@ if Code.ensure_loaded?(Ecto.Adapters.SQL) do
     @spec storage_id(Config.t()) :: term | nil
     def storage_id(%Config{} = conf) do
       case Keyword.get(conf.persistence, :repo) do
-        nil -> nil
-        repo -> {__MODULE__, repo, prefix(conf), table_name(conf)}
+        nil ->
+          nil
+
+        repo ->
+          {__MODULE__, Bandera.Store.Persistent.Ecto.database_location(repo), prefix(conf),
+           table_name(conf)}
       end
     end
 

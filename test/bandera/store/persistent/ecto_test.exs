@@ -173,8 +173,19 @@ defmodule Bandera.Store.Persistent.EctoTest do
   end
 
   describe "storage_id/1" do
-    test "identifies the repo, prefix, and table this conf points at", %{conf: conf} do
-      assert EctoStore.storage_id(conf) == {EctoStore, Bandera.TestRepo, nil, "bandera_flags"}
+    test "identifies the database, prefix, and table this conf points at", %{conf: conf} do
+      assert EctoStore.storage_id(conf) == {EctoStore, db(), nil, "bandera_flags"}
+    end
+
+    test "identifies the physical database, not the repo module" do
+      assert {"", "", database} = db()
+      assert database == Bandera.TestRepo.config()[:database]
+      # A different repo module configured against the same database file.
+      assert EctoStore.database_location(Bandera.TestRepoAlias) == db()
+    end
+
+    test "falls back to the repo module when it has no readable database config" do
+      assert EctoStore.database_location(Bandera.RecordingRepo) == Bandera.RecordingRepo
     end
 
     test "differs by table name" do
@@ -187,7 +198,7 @@ defmodule Bandera.Store.Persistent.EctoTest do
           ]
         )
 
-      assert EctoStore.storage_id(other) == {EctoStore, Bandera.TestRepo, nil, "bandera_flags_2"}
+      assert EctoStore.storage_id(other) == {EctoStore, db(), nil, "bandera_flags_2"}
     end
 
     test "differs by prefix" do
@@ -195,7 +206,7 @@ defmodule Bandera.Store.Persistent.EctoTest do
         Config.new(persistence: [adapter: EctoStore, repo: Bandera.TestRepo, prefix: "tenant_a"])
 
       assert EctoStore.storage_id(other) ==
-               {EctoStore, Bandera.TestRepo, "tenant_a", "bandera_flags"}
+               {EctoStore, db(), "tenant_a", "bandera_flags"}
     end
   end
 
@@ -328,10 +339,25 @@ defmodule Bandera.Store.Persistent.EctoTest do
                start_supervised({Bandera, Keyword.put(opts, :name, :ecto_intruder)})
 
       assert reason ==
-               {:storage_conflict, {EctoStore, Bandera.TestRepo, nil, "bandera_flags_2"},
-                :ecto_owner}
+               {:storage_conflict, {EctoStore, db(), nil, "bandera_flags_2"}, :ecto_owner}
 
       assert_raise ArgumentError, fn -> Config.get(:ecto_intruder) end
+    end
+
+    test "a second repo module on the same database and table is refused too" do
+      table = [adapter: EctoStore, ecto_table_name: "bandera_flags_2"]
+
+      start_supervised!(
+        {Bandera, name: :ecto_owner, persistence: [{:repo, Bandera.TestRepo} | table]}
+      )
+
+      assert {:error, {{:shutdown, {:failed_to_start_child, _, reason}}, _}} =
+               start_supervised(
+                 {Bandera,
+                  name: :ecto_alias, persistence: [{:repo, Bandera.TestRepoAlias} | table]}
+               )
+
+      assert {:storage_conflict, {EctoStore, _, nil, "bandera_flags_2"}, :ecto_owner} = reason
     end
 
     test "different tables on the same repo coexist" do
@@ -378,4 +404,6 @@ defmodule Bandera.Store.Persistent.EctoTest do
       start_supervised!({Bandera, Keyword.put(opts_b, :name, :ecto_prefix_b)})
     end
   end
+
+  defp db, do: EctoStore.database_location(Bandera.TestRepo)
 end

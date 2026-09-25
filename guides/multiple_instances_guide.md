@@ -153,8 +153,10 @@ end
 ```
 
 `up/1` also accepts `:usage_table` (see [Usage](#usage-stale-flag-tracking-per-instance)
-below). At start time, an instance whose repo, prefix, and table all match a
-*running* instance refuses to start: its supervisor fails to start its first
+below). At start time, an instance whose database, prefix, and table all match a
+*running* instance refuses to start (the database is identified by the repo's
+host, port, and database name, so this also catches two different repo modules
+pointed at the same database): its supervisor fails to start its first
 child with the reason
 
 ```elixir
